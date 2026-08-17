@@ -17,8 +17,9 @@ from agenttrace.ledger import RepositoryLedger, update_ledger
 from agenttrace.models import EvidenceBundle, Observation
 from agenttrace.pipeline import analyze_observations
 from agenttrace.storage.sqlite import SQLiteStore
+from agenttrace.util import utcnow
 
-CollectorFactory = Callable[[str], Collector]
+CollectorFactory = Callable[[str, int], Collector]
 
 
 @dataclass
@@ -28,6 +29,7 @@ class CampaignResult:
     observations: list[Observation] = field(default_factory=list)
     bundles: list[EvidenceBundle] = field(default_factory=list)
     errors: list[dict[str, str]] = field(default_factory=list)
+    search_pages: list[dict[str, Any]] = field(default_factory=list)
 
     def summary(self, top: int = 20) -> dict[str, Any]:
         reviewable = [bundle for bundle in self.bundles if bundle.score.reviewable]
@@ -39,6 +41,7 @@ class CampaignResult:
             "clusters": len(self.bundles),
             "reviewable_clusters": len(reviewable),
             "errors": self.errors,
+            "search_pages": self.search_pages,
             "top_clusters": [
                 {
                     "cluster_id": bundle.cluster_id,
@@ -82,17 +85,20 @@ def build_factories(
     repository_allowed: Callable[[str], bool] | None = None,
 ) -> dict[str, CollectorFactory]:
     available: dict[str, CollectorFactory] = {
-        "github-thread": lambda query: GitHubThreadSearchCollector(
+        "github-thread": lambda query, page: GitHubThreadSearchCollector(
             query,
             threads=threads,
             comments_per_thread=comments,
             settings=settings,
             repository_allowed=repository_allowed,
+            start_page=page,
         ),
-        "github-code": lambda query: GitHubCodeSearchCollector(
-            query, limit=limit, settings=settings
+        "github-code": lambda query, page: GitHubCodeSearchCollector(
+            query, limit=limit, settings=settings, start_page=page
         ),
-        "grep": lambda query: GrepAppCollector(query, limit=limit, settings=settings),
+        "grep": lambda query, page: GrepAppCollector(
+            query, limit=limit, settings=settings, start_page=page
+        ),
     }
     unknown = sorted(set(sources) - available.keys())
     if unknown:
@@ -110,19 +116,37 @@ async def run_campaign(
     retries: int = 2,
     repository_allowed: Callable[[str], bool] | None = None,
     ledger: RepositoryLedger | None = None,
+    rotate_pages: bool = False,
+    page_limits: dict[str, int] | None = None,
+    page_steps: dict[str, int] | None = None,
 ) -> CampaignResult:
     result = CampaignResult(queries=queries, sources=list(factories))
     seen: set[tuple[str, str | None]] = set()
 
     semaphore = asyncio.Semaphore(max(1, concurrency))
-    jobs = [
-        _collect_job(query, source, factory, semaphore, retries)
-        for query in queries
-        for source, factory in factories.items()
-    ]
-    for query, source, observations, error in await asyncio.gather(*jobs):
+    jobs = []
+    for query in queries:
+        for source, factory in factories.items():
+            maximum = (page_limits or {}).get(source, 1)
+            page = store.discovery_page(source, query, maximum) if rotate_pages else 1
+            jobs.append(_collect_job(query, source, page, factory, semaphore, retries))
+    for query, source, page, observations, error, exhausted in await asyncio.gather(*jobs):
+        result.search_pages.append({"query": query, "source": source, "page": page})
         if error:
             result.errors.append({"query": query, "source": source, "error": error})
+        elif rotate_pages:
+            updated_at = utcnow().isoformat()
+            if exhausted:
+                store.reset_discovery_page(source, query, updated_at)
+            else:
+                store.advance_discovery_page(
+                    source,
+                    query,
+                    page,
+                    (page_limits or {}).get(source, 1),
+                    updated_at,
+                    (page_steps or {}).get(source, 1),
+                )
         for observation in observations:
             if (
                 observation.repository
@@ -154,27 +178,31 @@ async def run_campaign(
 async def _collect_job(
     query: str,
     source: str,
+    page: int,
     factory: CollectorFactory,
     semaphore: asyncio.Semaphore,
     retries: int,
-) -> tuple[str, str, list[Observation], str | None]:
+) -> tuple[str, str, int, list[Observation], str | None, bool]:
     for attempt in range(max(0, retries) + 1):
         observations: list[Observation] = []
         try:
             async with semaphore:
-                collector = factory(query)
+                collector = factory(query, page)
                 async for observation in collector.collect():
                     observations.append(observation)
-            return query, source, observations, None
+            exhausted = bool(getattr(collector, "exhausted", False))
+            return query, source, page, observations, None, exhausted
         except httpx.HTTPStatusError as exc:
-            retryable = exc.response.status_code in {403, 429}
+            retryable = exc.response.status_code in {403, 429} or (
+                500 <= exc.response.status_code < 600
+            )
             if not retryable or attempt >= retries:
-                return query, source, observations, f"{type(exc).__name__}: {exc}"
+                return query, source, page, observations, f"{type(exc).__name__}: {exc}", False
             retry_after = exc.response.headers.get("retry-after")
             delay = float(retry_after) if retry_after and retry_after.isdigit() else 2**attempt
             await asyncio.sleep(min(delay, 30.0))
         except (httpx.HTTPError, RuntimeError, ValueError) as exc:
-            return query, source, observations, f"{type(exc).__name__}: {exc}"
+            return query, source, page, observations, f"{type(exc).__name__}: {exc}", False
     raise AssertionError("unreachable")
 
 

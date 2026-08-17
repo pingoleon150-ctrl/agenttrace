@@ -104,6 +104,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--concurrency", type=int, default=2)
     p.add_argument("--retries", type=int, default=2)
     p.add_argument("--interval", type=int, default=300)
+    p.add_argument(
+        "--query-batch-size",
+        type=int,
+        default=2,
+        help="Queries rotated per cycle; cursors persist in SQLite",
+    )
     p.add_argument("--once", action="store_true")
     _add_ledger_arguments(p)
 
@@ -270,7 +276,7 @@ async def _run_campaign(args) -> int:
 
 async def _watch(args) -> int:
     settings = Settings.from_env()
-    queries = load_queries(args.queries)
+    all_queries = load_queries(args.queries)
     sources = [source.strip() for source in args.sources.split(",") if source.strip()]
     ledger, repository_allowed = _repository_policy(args)
     factories = build_factories(
@@ -281,8 +287,20 @@ async def _watch(args) -> int:
         comments=args.comments,
         repository_allowed=repository_allowed,
     )
+    code_page_size = min(100, max(1, args.limit))
+    page_limits = {
+        "github-thread": max(1, 1000 // max(1, args.threads)),
+        "github-code": max(1, 1000 // code_page_size),
+        "grep": 100,
+    }
+    page_steps = {
+        "github-thread": 1,
+        "github-code": max(1, (args.limit + 99) // 100),
+        "grep": max(1, (args.limit + 9) // 10),
+    }
     while True:
         with SQLiteStore(settings.db_path) as store:
+            queries = store.take_query_batch(all_queries, args.query_batch_size)
             result = await watch_cycle(
                 queries,
                 factories,
@@ -292,6 +310,9 @@ async def _watch(args) -> int:
                 retries=args.retries,
                 repository_allowed=repository_allowed,
                 ledger=ledger,
+                ledger_queries=all_queries,
+                page_limits=page_limits,
+                page_steps=page_steps,
             )
         print(json.dumps(result.as_dict(), indent=2), flush=True)
         if result.state == "paused" or args.once:

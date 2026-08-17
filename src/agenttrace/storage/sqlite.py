@@ -42,6 +42,17 @@ CREATE TABLE IF NOT EXISTS monitor_alerts (
     summary TEXT NOT NULL,
     json TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS discovery_cursors (
+    source TEXT NOT NULL,
+    query TEXT NOT NULL,
+    next_page INTEGER NOT NULL DEFAULT 1,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (source, query)
+);
+CREATE TABLE IF NOT EXISTS monitor_state (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 """
 
 
@@ -121,6 +132,62 @@ class SQLiteStore:
         )
         self.conn.commit()
         return cursor.rowcount == 1
+
+    def take_query_batch(self, queries: list[str], batch_size: int) -> list[str]:
+        """Return the next circular query batch and persist the following position."""
+        if not queries:
+            return []
+        size = min(len(queries), max(1, batch_size))
+        row = self.conn.execute(
+            "SELECT value FROM monitor_state WHERE key='query_cursor'"
+        ).fetchone()
+        start = int(row[0]) % len(queries) if row else 0
+        selected = [queries[(start + offset) % len(queries)] for offset in range(size)]
+        next_start = (start + size) % len(queries)
+        self.conn.execute(
+            "INSERT INTO monitor_state(key, value) VALUES('query_cursor', ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (str(next_start),),
+        )
+        self.conn.commit()
+        return selected
+
+    def discovery_page(self, source: str, query: str, max_page: int) -> int:
+        row = self.conn.execute(
+            "SELECT next_page FROM discovery_cursors WHERE source=? AND query=?",
+            (source, query),
+        ).fetchone()
+        page = int(row[0]) if row else 1
+        return page if 1 <= page <= max(1, max_page) else 1
+
+    def advance_discovery_page(
+        self,
+        source: str,
+        query: str,
+        current_page: int,
+        max_page: int,
+        updated_at: str,
+        step: int = 1,
+    ) -> None:
+        """Advance after a successful request, wrapping within the source search cap."""
+        maximum = max(1, max_page)
+        next_page = ((current_page - 1 + max(1, step)) % maximum) + 1
+        self.conn.execute(
+            "INSERT INTO discovery_cursors(source, query, next_page, updated_at) VALUES(?,?,?,?) "
+            "ON CONFLICT(source, query) DO UPDATE SET "
+            "next_page=excluded.next_page, updated_at=excluded.updated_at",
+            (source, query, next_page, updated_at),
+        )
+        self.conn.commit()
+
+    def reset_discovery_page(self, source: str, query: str, updated_at: str) -> None:
+        self.conn.execute(
+            "INSERT INTO discovery_cursors(source, query, next_page, updated_at) VALUES(?,?,1,?) "
+            "ON CONFLICT(source, query) DO UPDATE SET "
+            "next_page=1, updated_at=excluded.updated_at",
+            (source, query, updated_at),
+        )
+        self.conn.commit()
 
     def observations_for_repositories(
         self, repositories: set[str], limit: int = 10000

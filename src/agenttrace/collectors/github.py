@@ -41,9 +41,6 @@ class GitHubClient:
 
     async def get(self, path: str, params: dict[str, Any] | None = None) -> httpx.Response:
         response = await self.client.get(path, params=params)
-        if response.status_code == 403 and "rate limit" in response.text.lower():
-            reset = response.headers.get("x-ratelimit-reset", "unknown")
-            raise RuntimeError(f"GitHub rate limit reached; reset={reset}")
         response.raise_for_status()
         return response
 
@@ -113,20 +110,25 @@ class GitHubThreadSearchCollector(Collector):
         comments_per_thread: int = 100,
         settings: Settings | None = None,
         repository_allowed: Callable[[str], bool] | None = None,
+        start_page: int = 1,
     ):
         self.query = query
         self.threads = max(1, min(threads, 100))
         self.comments_per_thread = max(1, min(comments_per_thread, 500))
         self.settings = settings or Settings.from_env()
         self.repository_allowed = repository_allowed
+        self.start_page = max(1, start_page)
+        self.exhausted = False
 
     async def collect(self) -> AsyncIterator[Observation]:
         async with GitHubClient(self.settings) as gh:
             response = await gh.get(
                 "/search/issues",
-                params={"q": self.query, "per_page": self.threads, "page": 1},
+                params={"q": self.query, "per_page": self.threads, "page": self.start_page},
             )
-            for item in response.json().get("items", [])[: self.threads]:
+            items = response.json().get("items", [])[: self.threads]
+            self.exhausted = not items
+            for item in items:
                 repo_url = item.get("repository_url", "")
                 repository = repo_url.split("/repos/", 1)[-1] if "/repos/" in repo_url else None
                 if not repository:
@@ -201,16 +203,24 @@ class GitHubThreadSearchCollector(Collector):
 
 
 class GitHubCodeSearchCollector(Collector):
-    def __init__(self, query: str, limit: int = 100, settings: Settings | None = None):
+    def __init__(
+        self,
+        query: str,
+        limit: int = 100,
+        settings: Settings | None = None,
+        start_page: int = 1,
+    ):
         self.query = query
         self.limit = max(1, min(limit, 1000))
         self.settings = settings or Settings.from_env()
+        self.start_page = max(1, start_page)
+        self.exhausted = False
         if not self.settings.github_token:
             raise ValueError("GitHub code search requires GITHUB_TOKEN or GH_TOKEN")
 
     async def collect(self) -> AsyncIterator[Observation]:
         fetched = 0
-        page = 1
+        page = self.start_page
         async with GitHubClient(self.settings) as gh:
             while fetched < self.limit:
                 per_page = min(100, self.limit - fetched)
@@ -220,6 +230,7 @@ class GitHubCodeSearchCollector(Collector):
                 )
                 items = response.json().get("items", [])
                 if not items:
+                    self.exhausted = True
                     break
                 for item in items:
                     fetched += 1

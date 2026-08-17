@@ -1,0 +1,10 @@
+{
+  "detector_version": "0.2.0",
+  "last_checked_at": "2026-08-17T11:34:38.589940+00:00",
+  "last_event_time": "2026-08-17T11:32:06+00:00",
+  "max_score": 0.0955,
+  "observations": 3,
+  "query_version": "093d279063acbb56f83c563dd6ca6beffbc81455b8105bc561f319b28881f973",
+  "repository": "kurone-kito/idd-skill",
+  "status": "no_high_confidence"
+}

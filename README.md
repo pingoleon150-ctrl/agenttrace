@@ -113,6 +113,13 @@ export AGENTTRACE_DB=/var/lib/agenttrace/agenttrace.db
 agenttrace watch --threshold 0.75 --interval 300
 ```
 
+The monitor rotates a small query batch per cycle and persists a page cursor for
+every source/query pair in SQLite. This prevents every cycle from returning to
+page one, reduces API bursts, and progressively explores deeper GitHub and
+grep.app results. Use `--query-batch-size` to tune the default batch of two.
+Page cursors advance only after a source request succeeds, so rate limits and
+transient failures do not silently skip result pages.
+
 The monitor only scores newly discovered evidence together with stored history.
 It stops at the first reviewable high-confidence candidate and prints a compact
 evidence summary. After human review, resolve the alert and restart the worker:

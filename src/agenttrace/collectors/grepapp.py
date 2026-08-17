@@ -23,14 +23,22 @@ class GrepAppCollector(Collector):
 
     API = "https://grep.app/api/search"
 
-    def __init__(self, query: str, limit: int = 100, settings: Settings | None = None):
+    def __init__(
+        self,
+        query: str,
+        limit: int = 100,
+        settings: Settings | None = None,
+        start_page: int = 1,
+    ):
         self.query = query
         self.limit = max(1, min(limit, 1000))
         self.settings = settings or Settings.from_env()
+        self.start_page = max(1, start_page)
+        self.exhausted = False
 
     async def collect(self) -> AsyncIterator[Observation]:
         fetched = 0
-        page = 1
+        page = self.start_page
         headers = {"User-Agent": self.settings.user_agent}
         async with httpx.AsyncClient(
             headers=headers, timeout=self.settings.timeout_seconds
@@ -40,6 +48,7 @@ class GrepAppCollector(Collector):
                 response.raise_for_status()
                 hits = (response.json().get("hits") or {}).get("hits") or []
                 if not hits:
+                    self.exhausted = True
                     break
                 for hit in hits:
                     repo = _raw(hit.get("repo"))
