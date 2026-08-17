@@ -4,6 +4,8 @@ __pycache__/
 .ruff_cache/
 *.pyc
 *.db
+agenttrace-monitor.log
+agenttrace-monitor.pid
 .env
 .DS_Store
 data/raw/
