@@ -4,6 +4,8 @@ __pycache__/
 .ruff_cache/
 *.pyc
 *.db
+*.db-shm
+*.db-wal
 agenttrace-monitor.log
 agenttrace-monitor.pid
 .env
