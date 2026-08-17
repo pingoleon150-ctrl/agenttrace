@@ -13,6 +13,7 @@ from agenttrace.collectors.base import Collector
 from agenttrace.collectors.github import GitHubCodeSearchCollector, GitHubThreadSearchCollector
 from agenttrace.collectors.grepapp import GrepAppCollector
 from agenttrace.config import Settings
+from agenttrace.ledger import RepositoryLedger, update_ledger
 from agenttrace.models import EvidenceBundle, Observation
 from agenttrace.pipeline import analyze_observations
 from agenttrace.storage.sqlite import SQLiteStore
@@ -78,10 +79,15 @@ def build_factories(
     limit: int,
     threads: int,
     comments: int,
+    repository_allowed: Callable[[str], bool] | None = None,
 ) -> dict[str, CollectorFactory]:
     available: dict[str, CollectorFactory] = {
         "github-thread": lambda query: GitHubThreadSearchCollector(
-            query, threads=threads, comments_per_thread=comments, settings=settings
+            query,
+            threads=threads,
+            comments_per_thread=comments,
+            settings=settings,
+            repository_allowed=repository_allowed,
         ),
         "github-code": lambda query: GitHubCodeSearchCollector(
             query, limit=limit, settings=settings
@@ -102,6 +108,8 @@ async def run_campaign(
     window_minutes: int = 60,
     concurrency: int = 2,
     retries: int = 2,
+    repository_allowed: Callable[[str], bool] | None = None,
+    ledger: RepositoryLedger | None = None,
 ) -> CampaignResult:
     result = CampaignResult(queries=queries, sources=list(factories))
     seen: set[tuple[str, str | None]] = set()
@@ -116,6 +124,12 @@ async def run_campaign(
         if error:
             result.errors.append({"query": query, "source": source, "error": error})
         for observation in observations:
+            if (
+                observation.repository
+                and repository_allowed
+                and not repository_allowed(observation.repository)
+            ):
+                continue
             key = (observation.provenance.url, observation.content_sha256)
             if key in seen:
                 continue
@@ -132,6 +146,8 @@ async def run_campaign(
     )
     for bundle in result.bundles:
         store.save_bundle(bundle)
+    if ledger:
+        update_ledger(ledger, result.observations, result.bundles, queries, "0.2.0")
     return result
 
 

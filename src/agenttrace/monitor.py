@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from agenttrace.campaign import CollectorFactory, run_campaign
+from agenttrace.ledger import RepositoryLedger, update_ledger
 from agenttrace.pipeline import analyze_observations
 from agenttrace.storage.sqlite import SQLiteStore
 
@@ -32,6 +34,8 @@ async def watch_cycle(
     threshold: float = 0.75,
     concurrency: int = 2,
     retries: int = 2,
+    repository_allowed: Callable[[str], bool] | None = None,
+    ledger: RepositoryLedger | None = None,
 ) -> WatchResult:
     pending = store.pending_alert()
     if pending:
@@ -44,10 +48,13 @@ async def watch_cycle(
         threshold=threshold,
         concurrency=concurrency,
         retries=retries,
+        repository_allowed=repository_allowed,
     )
     repositories = {obs.repository for obs in campaign.observations if obs.repository}
     history = store.observations_for_repositories(repositories)
     bundles = analyze_observations(history, threshold=threshold)
+    if ledger:
+        update_ledger(ledger, campaign.observations, bundles, queries, "0.2.0")
     candidates = [bundle for bundle in bundles if bundle.score.reviewable]
     if not candidates:
         return WatchResult(

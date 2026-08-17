@@ -16,6 +16,7 @@ from agenttrace.collectors.github import (
 from agenttrace.collectors.grepapp import GrepAppCollector
 from agenttrace.collectors.jsonl import JsonlCollector
 from agenttrace.config import Settings
+from agenttrace.ledger import RepositoryLedger, update_ledger
 from agenttrace.models import Observation, Provenance
 from agenttrace.monitor import watch_cycle
 from agenttrace.pipeline import analyze_cluster, analyze_observations, collect_to_store
@@ -89,6 +90,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--concurrency", type=int, default=2)
     p.add_argument("--retries", type=int, default=2)
     p.add_argument("--top", type=int, default=20)
+    _add_ledger_arguments(p)
 
     p = sub.add_parser(
         "watch", help="Continuously discover new evidence and pause on a high-confidence candidate"
@@ -103,12 +105,43 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--retries", type=int, default=2)
     p.add_argument("--interval", type=int, default=300)
     p.add_argument("--once", action="store_true")
+    _add_ledger_arguments(p)
 
     p = sub.add_parser("review-alert", help="Resolve a paused monitor alert")
     p.add_argument("alert_id", type=int)
     p.add_argument("--status", choices=["reviewed", "false-positive", "escalated"], required=True)
 
+    p = sub.add_parser(
+        "export-ledger", help="Export analyzed repositories from SQLite to the shared ledger"
+    )
+    p.add_argument("--queries", default="queries/seed_queries.yaml")
+    p.add_argument("--ledger", default="ledger/repos")
+    p.add_argument("--limit", type=int, default=100000)
+    p.add_argument("--threshold", type=float, default=0.75)
+
     return parser
+
+
+def _add_ledger_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--ledger", default="ledger/repos")
+    parser.add_argument("--recheck-repository", action="append", default=[])
+    parser.add_argument("--recheck-stale", type=int, metavar="DAYS")
+    parser.add_argument("--recheck-all", action="store_true")
+
+
+def _repository_policy(args):
+    ledger = RepositoryLedger(args.ledger)
+    requested = set(args.recheck_repository)
+
+    def allowed(repository: str) -> bool:
+        return not ledger.should_skip(
+            repository,
+            recheck_all=args.recheck_all,
+            recheck_repositories=requested,
+            recheck_stale_days=args.recheck_stale,
+        )
+
+    return ledger, allowed
 
 
 async def _run_collector(collector, threshold: float) -> int:
@@ -210,8 +243,14 @@ async def _run_campaign(args) -> int:
     settings = Settings.from_env()
     queries = load_queries(args.queries)
     sources = [source.strip() for source in args.sources.split(",") if source.strip()]
+    ledger, repository_allowed = _repository_policy(args)
     factories = build_factories(
-        sources, settings, limit=args.limit, threads=args.threads, comments=args.comments
+        sources,
+        settings,
+        limit=args.limit,
+        threads=args.threads,
+        comments=args.comments,
+        repository_allowed=repository_allowed,
     )
     with SQLiteStore(settings.db_path) as store:
         result = await run_campaign(
@@ -222,6 +261,8 @@ async def _run_campaign(args) -> int:
             window_minutes=args.window_minutes,
             concurrency=args.concurrency,
             retries=args.retries,
+            repository_allowed=repository_allowed,
+            ledger=ledger,
         )
     print(json.dumps(result.summary(top=args.top), indent=2))
     return 1 if result.errors and not result.observations else 0
@@ -231,8 +272,14 @@ async def _watch(args) -> int:
     settings = Settings.from_env()
     queries = load_queries(args.queries)
     sources = [source.strip() for source in args.sources.split(",") if source.strip()]
+    ledger, repository_allowed = _repository_policy(args)
     factories = build_factories(
-        sources, settings, limit=args.limit, threads=args.threads, comments=args.comments
+        sources,
+        settings,
+        limit=args.limit,
+        threads=args.threads,
+        comments=args.comments,
+        repository_allowed=repository_allowed,
     )
     while True:
         with SQLiteStore(settings.db_path) as store:
@@ -243,6 +290,8 @@ async def _watch(args) -> int:
                 threshold=args.threshold,
                 concurrency=args.concurrency,
                 retries=args.retries,
+                repository_allowed=repository_allowed,
+                ledger=ledger,
             )
         print(json.dumps(result.as_dict(), indent=2), flush=True)
         if result.state == "paused" or args.once:
@@ -299,6 +348,17 @@ def main() -> int:
             )
         print(json.dumps({"alert_id": args.alert_id, "status": args.status, "resolved": resolved}))
         return 0 if resolved else 1
+    if args.command == "export-ledger":
+        settings = Settings.from_env()
+        queries = load_queries(args.queries)
+        with SQLiteStore(settings.db_path) as store:
+            observations = store.list_observations(args.limit)
+        bundles = analyze_observations(observations, threshold=args.threshold)
+        paths = update_ledger(
+            RepositoryLedger(args.ledger), observations, bundles, queries, "0.2.0"
+        )
+        print(json.dumps({"repositories": len(paths), "ledger": args.ledger}))
+        return 0
     raise AssertionError("unreachable")
 
 

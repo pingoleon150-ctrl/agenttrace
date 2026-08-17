@@ -126,6 +126,33 @@ Use a process supervisor or container orchestrator to restart the worker after
 review. A pending alert always keeps the monitor paused, so restarts cannot skip
 the review gate.
 
+## Collaborative repository ledger
+
+Every analyzed repository is written to
+`ledger/repos/github/<owner>/<repository>.json`. If that record already exists,
+the repository is skipped by default across both `campaign` and `watch`. This
+lets contributors share completed coverage through normal Git commits and pull
+requests without sharing their local SQLite databases.
+
+Reanalysis is always explicit:
+
+```bash
+# Recheck one repository.
+agenttrace watch --recheck-repository openfga/api
+
+# Recheck ledger entries at least 30 days old.
+agenttrace watch --recheck-stale 30
+
+# Ignore the ledger for this run.
+agenttrace watch --recheck-all
+```
+
+Export repositories already present in a local database:
+
+```bash
+AGENTTRACE_DB=agenttrace.db agenttrace export-ledger
+```
+
 By default data is stored in `agenttrace.db`. Override with:
 
 ```bash

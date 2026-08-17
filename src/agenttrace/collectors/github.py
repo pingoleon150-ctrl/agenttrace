@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime
 from typing import Any, Self
 
@@ -112,11 +112,13 @@ class GitHubThreadSearchCollector(Collector):
         threads: int = 20,
         comments_per_thread: int = 100,
         settings: Settings | None = None,
+        repository_allowed: Callable[[str], bool] | None = None,
     ):
         self.query = query
         self.threads = max(1, min(threads, 100))
         self.comments_per_thread = max(1, min(comments_per_thread, 500))
         self.settings = settings or Settings.from_env()
+        self.repository_allowed = repository_allowed
 
     async def collect(self) -> AsyncIterator[Observation]:
         async with GitHubClient(self.settings) as gh:
@@ -128,6 +130,8 @@ class GitHubThreadSearchCollector(Collector):
                 repo_url = item.get("repository_url", "")
                 repository = repo_url.split("/repos/", 1)[-1] if "/repos/" in repo_url else None
                 if not repository:
+                    continue
+                if self.repository_allowed and not self.repository_allowed(repository):
                     continue
                 number = item.get("number")
                 root_text = "\n\n".join(filter(None, [item.get("title"), item.get("body")]))
