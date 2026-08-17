@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AgentTrace Observation",
+  "type": "object",
+  "required": [
+    "source",
+    "source_event_id",
+    "observed_at",
+    "event_time",
+    "actor",
+    "event_type",
+    "provenance"
+  ],
+  "properties": {
+    "source": {
+      "type": "string"
+    },
+    "source_event_id": {
+      "type": "string"
+    },
+    "observed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "event_time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "actor": {
+      "type": "string"
+    },
+    "event_type": {
+      "type": "string"
+    },
+    "text": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "repository": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "thread_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "reply_to": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "artifact_urls": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "code_blocks": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "content_sha256": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "metadata": {
+      "type": "object"
+    },
+    "provenance": {
+      "type": "object",
+      "required": [
+        "url"
+      ],
+      "properties": {
+        "url": {
+          "type": "string"
+        },
+        "retrieval_method": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "retrieved_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+title: AgentTrace
+message: "If you use AgentTrace in research, please cite the repository and the specific release/commit used."
+type: software
+authors:
+  - name: pingoleon150-ctrl
+license: Apache-2.0
+repository-code: "https://github.com/pingoleon150-ctrl/agenttrace"
+version: 0.2.0
+date-released: 2026-08-16

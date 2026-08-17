@@ -1,0 +1,30 @@
+name: Detector proposal
+description: Propose a new coordination signal or detector
+title: "[detector] "
+labels: ["research", "detector"]
+body:
+  - type: textarea
+    id: hypothesis
+    attributes:
+      label: Hypothesis
+      description: What observable behavior should this detector capture?
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence and implementation idea
+    validations:
+      required: true
+  - type: textarea
+    id: falsepositives
+    attributes:
+      label: Expected false positives
+    validations:
+      required: true
+  - type: textarea
+    id: evaluation
+    attributes:
+      label: Evaluation plan
+    validations:
+      required: true

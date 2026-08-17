@@ -1,0 +1,21 @@
+version: 1
+families:
+  protocol:
+    - '"task_id" "worker_id"'
+    - '"task_id" "ACK"'
+    - '"heartbeat" "worker"'
+    - '"retry_count" "task"'
+    - '"sequence" "checkpoint"'
+  state_continuity:
+    - '"resume_token"'
+    - '"continuation_token"'
+    - '"state_id" "worker"'
+    - '"checkpoint" "nonce"'
+  integrity:
+    - '"public key" "worker_id"'
+    - '"signature" "task_id"'
+    - '"nonce" "ACK"'
+  runtime:
+    - '"sandbox" "task_id"'
+    - '"tool call" "worker"'
+    - '"coordinator" "worker" "result"'

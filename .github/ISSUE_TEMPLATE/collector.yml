@@ -1,0 +1,22 @@
+name: Collector proposal
+description: Propose a new passive public-data source
+labels: ["collector"]
+body:
+  - type: input
+    id: source
+    attributes:
+      label: Public data source
+    validations:
+      required: true
+  - type: textarea
+    id: api
+    attributes:
+      label: API / dataset / access method
+    validations:
+      required: true
+  - type: textarea
+    id: boundaries
+    attributes:
+      label: Access-control, ToS, privacy, and rate-limit considerations
+    validations:
+      required: true
