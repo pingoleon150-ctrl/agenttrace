@@ -94,6 +94,18 @@ Analyze an existing JSONL corpus:
 agenttrace analyze-jsonl examples/sample_observations.jsonl
 ```
 
+Run every seed query across GitHub threads, authenticated GitHub code search,
+and grep.app, then deduplicate and rank the combined evidence:
+
+```bash
+export GITHUB_TOKEN=ghp_xxx
+agenttrace campaign --queries queries/seed_queries.yaml
+```
+
+Campaigns retry rate limits, continue when one query or source still fails, and
+include those errors in the JSON report. Use `--limit`, `--threads`,
+`--comments`, and `--concurrency` to bound API use.
+
 By default data is stored in `agenttrace.db`. Override with:
 
 ```bash

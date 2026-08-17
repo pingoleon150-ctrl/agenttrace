@@ -1,9 +1,8 @@
 from __future__ import annotations
 
+import re
 from collections.abc import AsyncIterator
 from html import unescape
-import re
-from urllib.parse import urlencode
 
 import httpx
 
@@ -33,11 +32,13 @@ class GrepAppCollector(Collector):
         fetched = 0
         page = 1
         headers = {"User-Agent": self.settings.user_agent}
-        async with httpx.AsyncClient(headers=headers, timeout=self.settings.timeout_seconds) as client:
+        async with httpx.AsyncClient(
+            headers=headers, timeout=self.settings.timeout_seconds
+        ) as client:
             while fetched < self.limit:
                 response = await client.get(self.API, params={"q": self.query, "page": page})
                 response.raise_for_status()
-                hits = ((response.json().get("hits") or {}).get("hits") or [])
+                hits = (response.json().get("hits") or {}).get("hits") or []
                 if not hits:
                     break
                 for hit in hits:
@@ -45,7 +46,11 @@ class GrepAppCollector(Collector):
                     path = _raw(hit.get("path"))
                     content = _clean_snippet((hit.get("content") or {}).get("snippet", ""))
                     text = f"{repo}:{path}\n{content}".strip()
-                    url = f"https://github.com/{repo}/blob/HEAD/{path}" if repo and path else "https://grep.app"
+                    url = (
+                        f"https://github.com/{repo}/blob/HEAD/{path}"
+                        if repo and path
+                        else "https://grep.app"
+                    )
                     yield Observation(
                         source="grep.app",
                         source_event_id=f"grep:{sha256_text(text)}",

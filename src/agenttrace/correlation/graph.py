@@ -74,23 +74,27 @@ def detect_graph_motifs(graph: nx.DiGraph) -> list[Signal]:
     reciprocity = reciprocal_edges / actor_graph.number_of_edges()
     max_out = max((actor_graph.out_degree(n) for n in actors), default=0)
     fanout = min(1.0, max_out / 4.0)
-    strongly_connected = max((len(c) for c in nx.strongly_connected_components(actor_graph)), default=1)
+    strongly_connected = max(
+        (len(c) for c in nx.strongly_connected_components(actor_graph)), default=1
+    )
     scc_score = min(1.0, max(0, strongly_connected - 1) / 4.0)
     score = min(1.0, 0.45 * reciprocity + 0.35 * fanout + 0.20 * scc_score)
     if score < 0.25:
         return []
-    return [Signal(
-        family="graph",
-        name="coordination_topology",
-        score=score,
-        evidence=[
-            f"actor_count={len(actors)}",
-            f"actor_edges={actor_graph.number_of_edges()}",
-            f"reciprocity={reciprocity:.2f}",
-            f"max_out_degree={max_out}",
-            f"largest_scc={strongly_connected}",
-        ],
-    )]
+    return [
+        Signal(
+            family="graph",
+            name="coordination_topology",
+            score=score,
+            evidence=[
+                f"actor_count={len(actors)}",
+                f"actor_edges={actor_graph.number_of_edges()}",
+                f"reciprocity={reciprocity:.2f}",
+                f"max_out_degree={max_out}",
+                f"largest_scc={strongly_connected}",
+            ],
+        )
+    ]
 
 
 def _increment_edge(graph: nx.DiGraph, u: str, v: str, relation: str) -> None:

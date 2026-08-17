@@ -6,7 +6,9 @@ from datetime import timedelta
 from agenttrace.models import Observation
 
 
-def cluster_observations(observations: list[Observation], window_minutes: int = 60) -> dict[str, list[Observation]]:
+def cluster_observations(
+    observations: list[Observation], window_minutes: int = 60
+) -> dict[str, list[Observation]]:
     """Deterministic MVP clustering by repo/thread, then sliding time windows.
 
     Cross-platform/entity-aware clustering is intentionally a later phase. This function keeps

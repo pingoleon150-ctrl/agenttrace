@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-from datetime import timezone
-import hashlib
-
 from agenttrace.collectors.base import Collector
 from agenttrace.correlation.cluster import cluster_observations
 from agenttrace.correlation.graph import build_coordination_graph, detect_graph_motifs
@@ -26,7 +23,9 @@ async def collect_to_store(collector: Collector, store: SQLiteStore) -> list[Obs
     return observations
 
 
-def analyze_cluster(cluster_id: str, observations: list[Observation], threshold: float = 0.60) -> EvidenceBundle:
+def analyze_cluster(
+    cluster_id: str, observations: list[Observation], threshold: float = 0.60
+) -> EvidenceBundle:
     signals: list[Signal] = []
     for observation in observations:
         signals.extend(detect_protocol(observation))
@@ -60,4 +59,7 @@ def analyze_observations(
     observations: list[Observation], threshold: float = 0.60, window_minutes: int = 60
 ) -> list[EvidenceBundle]:
     clusters = cluster_observations(observations, window_minutes=window_minutes)
-    return [analyze_cluster(cluster_id, items, threshold=threshold) for cluster_id, items in clusters.items()]
+    return [
+        analyze_cluster(cluster_id, items, threshold=threshold)
+        for cluster_id, items in clusters.items()
+    ]

@@ -41,7 +41,9 @@ def score_cluster(
         and benign < 0.75
     )
 
-    reasons = [f"{family}={value:.2f}" for family, value in sorted(by_family.items()) if value >= 0.40]
+    reasons = [
+        f"{family}={value:.2f}" for family, value in sorted(by_family.items()) if value >= 0.40
+    ]
     if benign:
         reasons.append(f"benign_penalty={BENIGN_WEIGHT * benign:.2f}")
     if not provenance_complete:

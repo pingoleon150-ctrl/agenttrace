@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
+from typing import Self
 
-from agenttrace.models import EvidenceBundle, Observation, Signal
+from agenttrace.models import EvidenceBundle, Observation
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
@@ -41,7 +42,7 @@ class SQLiteStore:
     def close(self) -> None:
         self.conn.close()
 
-    def __enter__(self) -> "SQLiteStore":
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:

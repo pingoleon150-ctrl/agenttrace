@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from datetime import datetime, timezone
-from typing import Any
-from urllib.parse import quote
+from datetime import UTC, datetime
+from typing import Any, Self
 
 import httpx
 
@@ -16,7 +15,9 @@ from agenttrace.util import extract_code_blocks, extract_urls, sha256_text, utcn
 class GitHubClient:
     BASE = "https://api.github.com"
 
-    def __init__(self, settings: Settings | None = None, transport: httpx.AsyncBaseTransport | None = None):
+    def __init__(
+        self, settings: Settings | None = None, transport: httpx.AsyncBaseTransport | None = None
+    ):
         self.settings = settings or Settings.from_env()
         headers = {
             "Accept": "application/vnd.github+json",
@@ -32,7 +33,7 @@ class GitHubClient:
             transport=transport,
         )
 
-    async def __aenter__(self) -> "GitHubClient":
+    async def __aenter__(self) -> Self:
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
@@ -105,7 +106,13 @@ class GitHubIssueSearchCollector(Collector):
 class GitHubThreadSearchCollector(Collector):
     """Search candidate issues/PRs and expand each result into its public conversation thread."""
 
-    def __init__(self, query: str, threads: int = 20, comments_per_thread: int = 100, settings: Settings | None = None):
+    def __init__(
+        self,
+        query: str,
+        threads: int = 20,
+        comments_per_thread: int = 100,
+        settings: Settings | None = None,
+    ):
         self.query = query
         self.threads = max(1, min(threads, 100))
         self.comments_per_thread = max(1, min(comments_per_thread, 500))
@@ -220,7 +227,9 @@ class GitHubCodeSearchCollector(Collector):
                         source_event_id=f"code:{item.get('sha')}:{path}",
                         observed_at=utcnow(),
                         event_time=utcnow(),
-                        actor=(item.get("repository") or {}).get("owner", {}).get("login", "unknown"),
+                        actor=(item.get("repository") or {})
+                        .get("owner", {})
+                        .get("login", "unknown"),
                         event_type="code_search_hit",
                         text=text,
                         repository=repo,
@@ -251,7 +260,9 @@ class GitHubPublicEventsCollector(Collector):
                 if not events:
                     break
                 for event in events:
-                    obs = github_event_to_observation(event, retrieval_method="github-public-events")
+                    obs = github_event_to_observation(
+                        event, retrieval_method="github-public-events"
+                    )
                     if obs:
                         yield obs
 
@@ -271,7 +282,9 @@ def github_event_to_observation(event: dict[str, Any], retrieval_method: str) ->
     if event_type in {"IssuesEvent", "IssueCommentEvent"}:
         issue = payload.get("issue") or {}
         comment = payload.get("comment") or {}
-        text_parts.extend(filter(None, [issue.get("title"), issue.get("body"), comment.get("body")]))
+        text_parts.extend(
+            filter(None, [issue.get("title"), issue.get("body"), comment.get("body")])
+        )
         thread_id = str(issue.get("number")) if issue.get("number") is not None else None
         urls.extend(filter(None, [issue.get("html_url"), comment.get("html_url")]))
         if comment.get("id"):
@@ -288,13 +301,19 @@ def github_event_to_observation(event: dict[str, Any], retrieval_method: str) ->
             if commit.get("url"):
                 urls.append(commit["url"])
     elif event_type == "CreateEvent":
-        text_parts.extend(filter(None, [payload.get("ref_type"), payload.get("ref"), payload.get("description")]))
+        text_parts.extend(
+            filter(None, [payload.get("ref_type"), payload.get("ref"), payload.get("description")])
+        )
     else:
         # Keep metadata-only events useful for temporal analysis without pretending they contain text.
         text_parts.append(event_type)
 
     text = "\n".join(text_parts).strip() or None
-    public_url = urls[0] if urls else (f"https://github.com/{repository}" if repository else "https://github.com")
+    public_url = (
+        urls[0]
+        if urls
+        else (f"https://github.com/{repository}" if repository else "https://github.com")
+    )
     return Observation(
         source="github-events",
         source_event_id=str(event.get("id")),
@@ -310,11 +329,13 @@ def github_event_to_observation(event: dict[str, Any], retrieval_method: str) ->
         code_blocks=extract_code_blocks(text),
         content_sha256=sha256_text(text or event_type),
         metadata={"public": event.get("public", True), "payload_action": payload.get("action")},
-        provenance=Provenance(url=public_url, retrieval_method=retrieval_method, retrieved_at=utcnow()),
+        provenance=Provenance(
+            url=public_url, retrieval_method=retrieval_method, retrieved_at=utcnow()
+        ),
     )
 
 
 def _parse_dt(value: str | None) -> datetime:
     if not value:
-        return datetime.now(timezone.utc)
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return datetime.now(UTC)
+    return datetime.fromisoformat(value)

@@ -2,12 +2,17 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from datetime import datetime, timedelta, timezone
 import json
-from pathlib import Path
+from datetime import UTC, datetime, timedelta
 
+from agenttrace.campaign import build_factories, load_queries, run_campaign
 from agenttrace.collectors.gharchive import GHArchiveHourCollector
-from agenttrace.collectors.github import GitHubCodeSearchCollector, GitHubIssueSearchCollector, GitHubPublicEventsCollector, GitHubThreadSearchCollector
+from agenttrace.collectors.github import (
+    GitHubCodeSearchCollector,
+    GitHubIssueSearchCollector,
+    GitHubPublicEventsCollector,
+    GitHubThreadSearchCollector,
+)
 from agenttrace.collectors.grepapp import GrepAppCollector
 from agenttrace.collectors.jsonl import JsonlCollector
 from agenttrace.config import Settings
@@ -17,7 +22,9 @@ from agenttrace.storage.sqlite import SQLiteStore
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="agenttrace", description="Detect public agent-coordination patterns")
+    parser = argparse.ArgumentParser(
+        prog="agenttrace", description="Detect public agent-coordination patterns"
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("demo", help="Run a deterministic synthetic coordination demo")
@@ -27,8 +34,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--limit", type=int, default=100)
     p.add_argument("--threshold", type=float, default=0.60)
 
-
-    p = sub.add_parser("github-thread-search", help="Search GitHub and expand candidate issue/PR conversations")
+    p = sub.add_parser(
+        "github-thread-search", help="Search GitHub and expand candidate issue/PR conversations"
+    )
     p.add_argument("--query", required=True)
     p.add_argument("--threads", type=int, default=20)
     p.add_argument("--comments", type=int, default=100)
@@ -43,7 +51,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--pages", type=int, default=1)
     p.add_argument("--threshold", type=float, default=0.60)
 
-    p = sub.add_parser("grep-search", help="Search public code using the experimental grep.app adapter")
+    p = sub.add_parser(
+        "grep-search", help="Search public code using the experimental grep.app adapter"
+    )
     p.add_argument("--query", required=True)
     p.add_argument("--limit", type=int, default=100)
     p.add_argument("--threshold", type=float, default=0.60)
@@ -57,9 +67,27 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("path")
     p.add_argument("--threshold", type=float, default=0.60)
 
-    p = sub.add_parser("export-reviewable", help="Print reviewable evidence bundles from current DB")
+    p = sub.add_parser(
+        "export-reviewable", help="Print reviewable evidence bundles from current DB"
+    )
     p.add_argument("--limit", type=int, default=10000)
     p.add_argument("--threshold", type=float, default=0.60)
+
+    p = sub.add_parser("campaign", help="Run a multi-query, multi-source discovery campaign")
+    p.add_argument("--queries", default="queries/seed_queries.yaml")
+    p.add_argument(
+        "--sources",
+        default="github-thread,github-code,grep",
+        help="Comma-separated: github-thread, github-code, grep",
+    )
+    p.add_argument("--limit", type=int, default=20, help="Maximum code hits per query/source")
+    p.add_argument("--threads", type=int, default=5, help="GitHub threads per query")
+    p.add_argument("--comments", type=int, default=50, help="Comments expanded per thread")
+    p.add_argument("--threshold", type=float, default=0.60)
+    p.add_argument("--window-minutes", type=int, default=60)
+    p.add_argument("--concurrency", type=int, default=2)
+    p.add_argument("--retries", type=int, default=2)
+    p.add_argument("--top", type=int, default=20)
 
     return parser
 
@@ -97,29 +125,87 @@ def _print_summary(observations, bundles) -> None:
 
 
 def _demo() -> int:
-    t0 = datetime.now(timezone.utc)
+    t0 = datetime.now(UTC)
     common_artifact = "artifact-7f9c2a11-checkpoint-8891"
     observations = [
-        Observation(source="demo", source_event_id="1", observed_at=t0, event_time=t0,
-            actor="coord", event_type="post", text=f"TASK-ID: probe-991 delegate worker. nonce={common_artifact}",
-            repository="demo/swarm", thread_id="42", code_blocks=[common_artifact],
-            provenance=Provenance(url="https://example.invalid/1")),
-        Observation(source="demo", source_event_id="2", observed_at=t0, event_time=t0+timedelta(seconds=8),
-            actor="worker-a", event_type="reply", text=f"ACK task probe-991 seq=2 {common_artifact}",
-            repository="demo/swarm", thread_id="42", reply_to="1", code_blocks=[common_artifact],
-            provenance=Provenance(url="https://example.invalid/2")),
-        Observation(source="demo", source_event_id="3", observed_at=t0, event_time=t0+timedelta(seconds=17),
-            actor="coord", event_type="reply", text="heartbeat worker alive retry_count=1 checkpoint",
-            repository="demo/swarm", thread_id="42", reply_to="2",
-            provenance=Provenance(url="https://example.invalid/3")),
-        Observation(source="demo", source_event_id="4", observed_at=t0, event_time=t0+timedelta(seconds=25),
-            actor="worker-a", event_type="reply", text="ACK result completed report back",
-            repository="demo/swarm", thread_id="42", reply_to="3",
-            provenance=Provenance(url="https://example.invalid/4")),
+        Observation(
+            source="demo",
+            source_event_id="1",
+            observed_at=t0,
+            event_time=t0,
+            actor="coord",
+            event_type="post",
+            text=f"TASK-ID: probe-991 delegate worker. nonce={common_artifact}",
+            repository="demo/swarm",
+            thread_id="42",
+            code_blocks=[common_artifact],
+            provenance=Provenance(url="https://example.invalid/1"),
+        ),
+        Observation(
+            source="demo",
+            source_event_id="2",
+            observed_at=t0,
+            event_time=t0 + timedelta(seconds=8),
+            actor="worker-a",
+            event_type="reply",
+            text=f"ACK task probe-991 seq=2 {common_artifact}",
+            repository="demo/swarm",
+            thread_id="42",
+            reply_to="1",
+            code_blocks=[common_artifact],
+            provenance=Provenance(url="https://example.invalid/2"),
+        ),
+        Observation(
+            source="demo",
+            source_event_id="3",
+            observed_at=t0,
+            event_time=t0 + timedelta(seconds=17),
+            actor="coord",
+            event_type="reply",
+            text="heartbeat worker alive retry_count=1 checkpoint",
+            repository="demo/swarm",
+            thread_id="42",
+            reply_to="2",
+            provenance=Provenance(url="https://example.invalid/3"),
+        ),
+        Observation(
+            source="demo",
+            source_event_id="4",
+            observed_at=t0,
+            event_time=t0 + timedelta(seconds=25),
+            actor="worker-a",
+            event_type="reply",
+            text="ACK result completed report back",
+            repository="demo/swarm",
+            thread_id="42",
+            reply_to="3",
+            provenance=Provenance(url="https://example.invalid/4"),
+        ),
     ]
     bundle = analyze_cluster("demo:swarm:42", observations, threshold=0.50)
     print(bundle.model_dump_json(indent=2))
     return 0
+
+
+async def _run_campaign(args) -> int:
+    settings = Settings.from_env()
+    queries = load_queries(args.queries)
+    sources = [source.strip() for source in args.sources.split(",") if source.strip()]
+    factories = build_factories(
+        sources, settings, limit=args.limit, threads=args.threads, comments=args.comments
+    )
+    with SQLiteStore(settings.db_path) as store:
+        result = await run_campaign(
+            queries,
+            factories,
+            store,
+            threshold=args.threshold,
+            window_minutes=args.window_minutes,
+            concurrency=args.concurrency,
+            retries=args.retries,
+        )
+    print(json.dumps(result.summary(top=args.top), indent=2))
+    return 1 if result.errors and not result.observations else 0
 
 
 def main() -> int:
@@ -127,17 +213,27 @@ def main() -> int:
     if args.command == "demo":
         return _demo()
     if args.command == "github-search":
-        return asyncio.run(_run_collector(GitHubIssueSearchCollector(args.query, args.limit), args.threshold))
+        return asyncio.run(
+            _run_collector(GitHubIssueSearchCollector(args.query, args.limit), args.threshold)
+        )
     if args.command == "github-thread-search":
-        return asyncio.run(_run_collector(GitHubThreadSearchCollector(args.query, args.threads, args.comments), args.threshold))
+        return asyncio.run(
+            _run_collector(
+                GitHubThreadSearchCollector(args.query, args.threads, args.comments), args.threshold
+            )
+        )
     if args.command == "github-code-search":
-        return asyncio.run(_run_collector(GitHubCodeSearchCollector(args.query, args.limit), args.threshold))
+        return asyncio.run(
+            _run_collector(GitHubCodeSearchCollector(args.query, args.limit), args.threshold)
+        )
     if args.command == "github-events":
         return asyncio.run(_run_collector(GitHubPublicEventsCollector(args.pages), args.threshold))
     if args.command == "grep-search":
         return asyncio.run(_run_collector(GrepAppCollector(args.query, args.limit), args.threshold))
     if args.command == "gharchive-hour":
-        return asyncio.run(_run_collector(GHArchiveHourCollector(args.hour, args.limit), args.threshold))
+        return asyncio.run(
+            _run_collector(GHArchiveHourCollector(args.hour, args.limit), args.threshold)
+        )
     if args.command == "analyze-jsonl":
         return asyncio.run(_run_collector(JsonlCollector(args.path), args.threshold))
     if args.command == "export-reviewable":
@@ -149,6 +245,8 @@ def main() -> int:
                 if bundle.score.reviewable:
                     print(bundle.model_dump_json())
         return 0
+    if args.command == "campaign":
+        return asyncio.run(_run_campaign(args))
     raise AssertionError("unreachable")
 
 
