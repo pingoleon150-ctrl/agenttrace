@@ -11,8 +11,18 @@ def test_provenance_url_is_not_an_artifact():
         "public": True,
         "payload": {
             "action": "created",
-            "issue": {"id": 9, "number": 7, "title": "task", "body": "plain text", "html_url": "https://github.com/org/repo/issues/7"},
-            "comment": {"id": 10, "body": "ACK", "html_url": "https://github.com/org/repo/issues/7#issuecomment-10"},
+            "issue": {
+                "id": 9,
+                "number": 7,
+                "title": "task",
+                "body": "plain text",
+                "html_url": "https://github.com/org/repo/issues/7",
+            },
+            "comment": {
+                "id": 10,
+                "body": "ACK",
+                "html_url": "https://github.com/org/repo/issues/7#issuecomment-10",
+            },
         },
     }
     obs = github_event_to_observation(event, "test")

@@ -7,7 +7,9 @@ from dataclasses import dataclass
 from agenttrace.models import Observation, Signal
 from agenttrace.util import sha256_text
 
-TOKEN_RE = re.compile(r"(?<![A-Za-z0-9_-])[A-Za-z0-9][A-Za-z0-9_-]{10,62}[A-Za-z0-9](?![A-Za-z0-9_-])")
+TOKEN_RE = re.compile(
+    r"(?<![A-Za-z0-9_-])[A-Za-z0-9][A-Za-z0-9_-]{10,62}[A-Za-z0-9](?![A-Za-z0-9_-])"
+)
 HEX_RE = re.compile(r"\b[a-fA-F0-9]{16,64}\b")
 
 
@@ -54,10 +56,12 @@ def detect_cross_actor_reuse(observations: list[Observation]) -> list[Signal]:
         display = artifact.value if artifact.kind != "code" else artifact.value[:16]
         evidence.append(f"{artifact.kind}:{display}:actors={','.join(sorted(actors))}")
         ids.extend(obs_ids[artifact])
-    return [Signal(
-        family="artifact",
-        name="cross_actor_rare_artifact_reuse",
-        score=score,
-        observation_ids=sorted(set(ids)),
-        evidence=evidence,
-    )]
+    return [
+        Signal(
+            family="artifact",
+            name="cross_actor_rare_artifact_reuse",
+            score=score,
+            observation_ids=sorted(set(ids)),
+            evidence=evidence,
+        )
+    ]

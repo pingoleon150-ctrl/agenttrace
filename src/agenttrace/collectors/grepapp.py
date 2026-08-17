@@ -1,9 +1,8 @@
 from __future__ import annotations
 
+import re
 from collections.abc import AsyncIterator
 from html import unescape
-import re
-from urllib.parse import urlencode
 
 import httpx
 
@@ -24,28 +23,43 @@ class GrepAppCollector(Collector):
 
     API = "https://grep.app/api/search"
 
-    def __init__(self, query: str, limit: int = 100, settings: Settings | None = None):
+    def __init__(
+        self,
+        query: str,
+        limit: int = 100,
+        settings: Settings | None = None,
+        start_page: int = 1,
+    ):
         self.query = query
         self.limit = max(1, min(limit, 1000))
         self.settings = settings or Settings.from_env()
+        self.start_page = max(1, start_page)
+        self.exhausted = False
 
     async def collect(self) -> AsyncIterator[Observation]:
         fetched = 0
-        page = 1
+        page = self.start_page
         headers = {"User-Agent": self.settings.user_agent}
-        async with httpx.AsyncClient(headers=headers, timeout=self.settings.timeout_seconds) as client:
+        async with httpx.AsyncClient(
+            headers=headers, timeout=self.settings.timeout_seconds
+        ) as client:
             while fetched < self.limit:
                 response = await client.get(self.API, params={"q": self.query, "page": page})
                 response.raise_for_status()
-                hits = ((response.json().get("hits") or {}).get("hits") or [])
+                hits = (response.json().get("hits") or {}).get("hits") or []
                 if not hits:
+                    self.exhausted = True
                     break
                 for hit in hits:
                     repo = _raw(hit.get("repo"))
                     path = _raw(hit.get("path"))
                     content = _clean_snippet((hit.get("content") or {}).get("snippet", ""))
                     text = f"{repo}:{path}\n{content}".strip()
-                    url = f"https://github.com/{repo}/blob/HEAD/{path}" if repo and path else "https://grep.app"
+                    url = (
+                        f"https://github.com/{repo}/blob/HEAD/{path}"
+                        if repo and path
+                        else "https://grep.app"
+                    )
                     yield Observation(
                         source="grep.app",
                         source_event_id=f"grep:{sha256_text(text)}",

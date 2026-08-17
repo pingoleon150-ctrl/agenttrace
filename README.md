@@ -94,6 +94,72 @@ Analyze an existing JSONL corpus:
 agenttrace analyze-jsonl examples/sample_observations.jsonl
 ```
 
+Run every seed query across GitHub threads, authenticated GitHub code search,
+and grep.app, then deduplicate and rank the combined evidence:
+
+```bash
+export GITHUB_TOKEN=ghp_xxx
+agenttrace campaign --queries queries/seed_queries.yaml
+```
+
+Campaigns retry rate limits, continue when one query or source still fails, and
+include those errors in the JSON report. Use `--limit`, `--threads`,
+`--comments`, and `--concurrency` to bound API use.
+
+Run incremental monitoring with persistent deduplication:
+
+```bash
+export AGENTTRACE_DB=/var/lib/agenttrace/agenttrace.db
+agenttrace watch --threshold 0.75 --interval 300
+```
+
+The monitor rotates a small query batch per cycle and persists a page cursor for
+every source/query pair in SQLite. This prevents every cycle from returning to
+page one, reduces API bursts, and progressively explores deeper GitHub and
+grep.app results. Use `--query-batch-size` to tune the default batch of two.
+Page cursors advance only after a source request succeeds, so rate limits and
+transient failures do not silently skip result pages.
+
+The monitor only scores newly discovered evidence together with stored history.
+It stops at the first reviewable high-confidence candidate and prints a compact
+evidence summary. After human review, resolve the alert and restart the worker:
+
+```bash
+agenttrace review-alert 1 --status false-positive
+agenttrace watch --threshold 0.75 --interval 300
+```
+
+Use a process supervisor or container orchestrator to restart the worker after
+review. A pending alert always keeps the monitor paused, so restarts cannot skip
+the review gate.
+
+## Collaborative repository ledger
+
+Every analyzed repository is written to
+`ledger/repos/github/<owner>/<repository>.json`. If that record already exists,
+the repository is skipped by default across both `campaign` and `watch`. This
+lets contributors share completed coverage through normal Git commits and pull
+requests without sharing their local SQLite databases.
+
+Reanalysis is always explicit:
+
+```bash
+# Recheck one repository.
+agenttrace watch --recheck-repository openfga/api
+
+# Recheck ledger entries at least 30 days old.
+agenttrace watch --recheck-stale 30
+
+# Ignore the ledger for this run.
+agenttrace watch --recheck-all
+```
+
+Export repositories already present in a local database:
+
+```bash
+AGENTTRACE_DB=agenttrace.db agenttrace export-ledger
+```
+
 By default data is stored in `agenttrace.db`. Override with:
 
 ```bash

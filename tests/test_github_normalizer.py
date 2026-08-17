@@ -11,8 +11,18 @@ def test_issue_comment_event_normalizes():
         "public": True,
         "payload": {
             "action": "created",
-            "issue": {"id": 9, "number": 7, "title": "task", "body": "TASK-ID: abc-1234", "html_url": "https://github.com/org/repo/issues/7"},
-            "comment": {"id": 10, "body": "ACK", "html_url": "https://github.com/org/repo/issues/7#issuecomment-10"},
+            "issue": {
+                "id": 9,
+                "number": 7,
+                "title": "task",
+                "body": "TASK-ID: abc-1234",
+                "html_url": "https://github.com/org/repo/issues/7",
+            },
+            "comment": {
+                "id": 10,
+                "body": "ACK",
+                "html_url": "https://github.com/org/repo/issues/7#issuecomment-10",
+            },
         },
     }
     obs = github_event_to_observation(event, "test")

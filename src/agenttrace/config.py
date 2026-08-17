@@ -12,7 +12,7 @@ class Settings:
     timeout_seconds: float = 30.0
 
     @classmethod
-    def from_env(cls) -> "Settings":
+    def from_env(cls) -> Settings:
         return cls(
             github_token=os.getenv("GITHUB_TOKEN") or os.getenv("GH_TOKEN"),
             db_path=os.getenv("AGENTTRACE_DB", "agenttrace.db"),
