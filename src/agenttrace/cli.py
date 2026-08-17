@@ -17,6 +17,7 @@ from agenttrace.collectors.grepapp import GrepAppCollector
 from agenttrace.collectors.jsonl import JsonlCollector
 from agenttrace.config import Settings
 from agenttrace.models import Observation, Provenance
+from agenttrace.monitor import watch_cycle
 from agenttrace.pipeline import analyze_cluster, analyze_observations, collect_to_store
 from agenttrace.storage.sqlite import SQLiteStore
 
@@ -88,6 +89,24 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--concurrency", type=int, default=2)
     p.add_argument("--retries", type=int, default=2)
     p.add_argument("--top", type=int, default=20)
+
+    p = sub.add_parser(
+        "watch", help="Continuously discover new evidence and pause on a high-confidence candidate"
+    )
+    p.add_argument("--queries", default="queries/seed_queries.yaml")
+    p.add_argument("--sources", default="github-thread,github-code,grep")
+    p.add_argument("--limit", type=int, default=20)
+    p.add_argument("--threads", type=int, default=5)
+    p.add_argument("--comments", type=int, default=50)
+    p.add_argument("--threshold", type=float, default=0.75)
+    p.add_argument("--concurrency", type=int, default=2)
+    p.add_argument("--retries", type=int, default=2)
+    p.add_argument("--interval", type=int, default=300)
+    p.add_argument("--once", action="store_true")
+
+    p = sub.add_parser("review-alert", help="Resolve a paused monitor alert")
+    p.add_argument("alert_id", type=int)
+    p.add_argument("--status", choices=["reviewed", "false-positive", "escalated"], required=True)
 
     return parser
 
@@ -208,6 +227,29 @@ async def _run_campaign(args) -> int:
     return 1 if result.errors and not result.observations else 0
 
 
+async def _watch(args) -> int:
+    settings = Settings.from_env()
+    queries = load_queries(args.queries)
+    sources = [source.strip() for source in args.sources.split(",") if source.strip()]
+    factories = build_factories(
+        sources, settings, limit=args.limit, threads=args.threads, comments=args.comments
+    )
+    while True:
+        with SQLiteStore(settings.db_path) as store:
+            result = await watch_cycle(
+                queries,
+                factories,
+                store,
+                threshold=args.threshold,
+                concurrency=args.concurrency,
+                retries=args.retries,
+            )
+        print(json.dumps(result.as_dict(), indent=2), flush=True)
+        if result.state == "paused" or args.once:
+            return 2 if result.state == "paused" else 0
+        await asyncio.sleep(max(1, args.interval))
+
+
 def main() -> int:
     args = build_parser().parse_args()
     if args.command == "demo":
@@ -247,6 +289,16 @@ def main() -> int:
         return 0
     if args.command == "campaign":
         return asyncio.run(_run_campaign(args))
+    if args.command == "watch":
+        return asyncio.run(_watch(args))
+    if args.command == "review-alert":
+        settings = Settings.from_env()
+        with SQLiteStore(settings.db_path) as store:
+            resolved = store.resolve_alert(
+                args.alert_id, args.status, datetime.now(UTC).isoformat()
+            )
+        print(json.dumps({"alert_id": args.alert_id, "status": args.status, "resolved": resolved}))
+        return 0 if resolved else 1
     raise AssertionError("unreachable")
 
 

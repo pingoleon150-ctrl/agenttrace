@@ -106,6 +106,26 @@ Campaigns retry rate limits, continue when one query or source still fails, and
 include those errors in the JSON report. Use `--limit`, `--threads`,
 `--comments`, and `--concurrency` to bound API use.
 
+Run incremental monitoring with persistent deduplication:
+
+```bash
+export AGENTTRACE_DB=/var/lib/agenttrace/agenttrace.db
+agenttrace watch --threshold 0.75 --interval 300
+```
+
+The monitor only scores newly discovered evidence together with stored history.
+It stops at the first reviewable high-confidence candidate and prints a compact
+evidence summary. After human review, resolve the alert and restart the worker:
+
+```bash
+agenttrace review-alert 1 --status false-positive
+agenttrace watch --threshold 0.75 --interval 300
+```
+
+Use a process supervisor or container orchestrator to restart the worker after
+review. A pending alert always keeps the monitor paused, so restarts cannot skip
+the review gate.
+
 By default data is stored in `agenttrace.db`. Override with:
 
 ```bash

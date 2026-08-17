@@ -42,10 +42,22 @@ def test_campaign_deduplicates_across_sources(tmp_path):
     }
     with SQLiteStore(tmp_path / "campaign.db") as store:
         result = asyncio.run(run_campaign(["needle"], factories, store))
+        repeated = asyncio.run(run_campaign(["needle"], factories, store))
         stored = store.list_observations()
 
     assert len(result.observations) == 1
+    assert repeated.observations == []
     assert len(stored) == 1
     assert stored[0].source == "campaign"
     assert stored[0].metadata["campaign_query"] == "needle"
     assert stored[0].metadata["origin_source"] == "first"
+
+
+def test_alert_pauses_until_resolved(tmp_path):
+    factories = {"first": lambda query: FakeCollector("first", query)}
+    with SQLiteStore(tmp_path / "alerts.db") as store:
+        result = asyncio.run(run_campaign(["needle"], factories, store))
+        alert_id = store.create_alert("candidate-1", "summary", result.bundles[0])
+        assert store.pending_alert()["id"] == alert_id
+        assert store.resolve_alert(alert_id, "reviewed", "2026-08-17T00:00:00+00:00")
+        assert store.pending_alert() is None

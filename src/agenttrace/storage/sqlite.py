@@ -29,6 +29,19 @@ CREATE TABLE IF NOT EXISTS evidence_bundles (
     reviewable INTEGER NOT NULL,
     json TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS discovery_fingerprints (
+    fingerprint TEXT PRIMARY KEY,
+    first_seen TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS monitor_alerts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fingerprint TEXT NOT NULL UNIQUE,
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at TEXT NOT NULL,
+    reviewed_at TEXT,
+    summary TEXT NOT NULL,
+    json TEXT NOT NULL
+);
 """
 
 
@@ -100,3 +113,54 @@ class SQLiteStore:
             "SELECT json FROM observations ORDER BY event_time DESC LIMIT ?", (limit,)
         ).fetchall()
         return [Observation.model_validate_json(row[0]) for row in rows]
+
+    def claim_fingerprint(self, fingerprint: str, first_seen: str) -> bool:
+        cursor = self.conn.execute(
+            "INSERT OR IGNORE INTO discovery_fingerprints(fingerprint, first_seen) VALUES(?,?)",
+            (fingerprint, first_seen),
+        )
+        self.conn.commit()
+        return cursor.rowcount == 1
+
+    def observations_for_repositories(
+        self, repositories: set[str], limit: int = 10000
+    ) -> list[Observation]:
+        if not repositories:
+            return []
+        placeholders = ",".join("?" for _ in repositories)
+        rows = self.conn.execute(
+            f"SELECT json FROM observations WHERE repository IN ({placeholders}) "
+            "ORDER BY event_time DESC LIMIT ?",
+            (*sorted(repositories), limit),
+        ).fetchall()
+        return [Observation.model_validate_json(row[0]) for row in rows]
+
+    def pending_alert(self) -> dict | None:
+        row = self.conn.execute(
+            "SELECT id, status, summary, json FROM monitor_alerts "
+            "WHERE status='pending' ORDER BY id LIMIT 1"
+        ).fetchone()
+        return (
+            None
+            if row is None
+            else {"id": row[0], "status": row[1], "summary": row[2], "json": row[3]}
+        )
+
+    def create_alert(self, fingerprint: str, summary: str, bundle: EvidenceBundle) -> int:
+        self.conn.execute(
+            "INSERT OR IGNORE INTO monitor_alerts(fingerprint, created_at, summary, json) VALUES(?,?,?,?)",
+            (fingerprint, bundle.created_at.isoformat(), summary, bundle.model_dump_json()),
+        )
+        self.conn.commit()
+        row = self.conn.execute(
+            "SELECT id FROM monitor_alerts WHERE fingerprint=?", (fingerprint,)
+        ).fetchone()
+        return int(row[0])
+
+    def resolve_alert(self, alert_id: int, status: str, reviewed_at: str) -> bool:
+        cursor = self.conn.execute(
+            "UPDATE monitor_alerts SET status=?, reviewed_at=? WHERE id=? AND status='pending'",
+            (status, reviewed_at, alert_id),
+        )
+        self.conn.commit()
+        return cursor.rowcount == 1

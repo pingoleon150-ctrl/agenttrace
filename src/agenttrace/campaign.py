@@ -120,6 +120,9 @@ async def run_campaign(
             if key in seen:
                 continue
             seen.add(key)
+            fingerprint = f"{key[0]}\0{key[1] or ''}"
+            if not store.claim_fingerprint(fingerprint, observation.observed_at.isoformat()):
+                continue
             normalized = _normalize_observation(observation, source, query)
             store.upsert_observation(normalized)
             result.observations.append(normalized)
