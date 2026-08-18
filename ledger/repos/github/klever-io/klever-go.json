@@ -1,0 +1,10 @@
+{
+  "detector_version": "0.4.0",
+  "last_checked_at": "2026-08-18T19:45:29.793210+00:00",
+  "last_event_time": "2026-08-14T20:38:40+00:00",
+  "max_score": 0.3323,
+  "observations": 16,
+  "query_version": "b2e9feb809dc271a2e7814c1f5599eb40f3c4aac390c89fccd9511d4d2b9dee6",
+  "repository": "klever-io/klever-go",
+  "status": "no_high_confidence"
+}

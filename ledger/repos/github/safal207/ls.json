@@ -1,0 +1,10 @@
+{
+  "detector_version": "0.4.0",
+  "last_checked_at": "2026-08-18T15:33:17.044617+00:00",
+  "last_event_time": "2026-08-17T11:05:12+00:00",
+  "max_score": 0.5654,
+  "observations": 14,
+  "query_version": "093d279063acbb56f83c563dd6ca6beffbc81455b8105bc561f319b28881f973",
+  "repository": "safal207/LS",
+  "status": "no_high_confidence"
+}

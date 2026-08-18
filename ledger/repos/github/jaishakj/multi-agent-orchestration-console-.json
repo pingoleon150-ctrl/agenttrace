@@ -1,0 +1,10 @@
+{
+  "detector_version": "0.4.0",
+  "last_checked_at": "2026-08-18T18:23:14.555652+00:00",
+  "last_event_time": "2026-08-09T06:17:16+00:00",
+  "max_score": 0.5812,
+  "observations": 3,
+  "query_version": "b2e9feb809dc271a2e7814c1f5599eb40f3c4aac390c89fccd9511d4d2b9dee6",
+  "repository": "jaishakj/Multi-Agent-Orchestration-Console-",
+  "status": "no_high_confidence"
+}

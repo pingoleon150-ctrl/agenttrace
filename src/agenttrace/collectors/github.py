@@ -381,11 +381,29 @@ def github_event_to_observation(event: dict[str, Any], retrieval_method: str) ->
         thread_id = str(pr.get("number")) if pr.get("number") is not None else None
         urls.extend(filter(None, [pr.get("html_url")]))
     elif event_type == "PushEvent":
-        for commit in payload.get("commits") or []:
+        commits = payload.get("commits") or []
+        commit_messages: list[str] = []
+        author_email_domains: set[str] = set()
+        commit_shas: list[str] = []
+        for commit in commits:
             if commit.get("message"):
                 text_parts.append(commit["message"])
+                commit_messages.append(str(commit["message"])[:500])
             if commit.get("url"):
                 urls.append(commit["url"])
+            if commit.get("sha"):
+                commit_shas.append(str(commit["sha"]))
+            email = str((commit.get("author") or {}).get("email") or "")
+            if "@" in email:
+                author_email_domains.add(email.rsplit("@", 1)[1].casefold())
+        event_metadata.update(
+            {
+                "commit_count": len(commits),
+                "commit_messages": commit_messages,
+                "commit_shas": commit_shas,
+                "author_email_domains": sorted(author_email_domains),
+            }
+        )
     elif event_type == "CreateEvent":
         text_parts.extend(
             filter(None, [payload.get("ref_type"), payload.get("ref"), payload.get("description")])

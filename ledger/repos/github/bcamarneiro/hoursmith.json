@@ -1,0 +1,10 @@
+{
+  "detector_version": "0.4.0",
+  "last_checked_at": "2026-08-18T02:17:16.465352+00:00",
+  "last_event_time": "2026-07-31T08:00:14+00:00",
+  "max_score": 0.2012,
+  "observations": 7,
+  "query_version": "093d279063acbb56f83c563dd6ca6beffbc81455b8105bc561f319b28881f973",
+  "repository": "bcamarneiro/hoursmith",
+  "status": "no_high_confidence"
+}

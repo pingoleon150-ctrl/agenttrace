@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+from agenttrace.calibration import CalibrationProfile
 from agenttrace.collectors.base import Collector
 from agenttrace.correlation.cluster import cluster_observations
 from agenttrace.correlation.graph import build_coordination_graph, detect_graph_motifs
+from agenttrace.correlation.trajectories import longitudinal_candidates
 from agenttrace.detectors.artifact_reuse import detect_cross_actor_reuse
+from agenttrace.detectors.behavior import detect_behavioral_signals
 from agenttrace.detectors.benign import detect_benign_automation
+from agenttrace.detectors.commit_metadata import detect_commit_metadata_patterns
 from agenttrace.detectors.identity import detect_shared_identity_markers
 from agenttrace.detectors.protocol import detect_protocol
 from agenttrace.detectors.semantic import detect_coordination_exchange
@@ -31,7 +35,10 @@ async def collect_to_store(
 
 
 def analyze_cluster(
-    cluster_id: str, observations: list[Observation], threshold: float = 0.60
+    cluster_id: str,
+    observations: list[Observation],
+    threshold: float = 0.60,
+    calibration: CalibrationProfile | None = None,
 ) -> EvidenceBundle:
     signals: list[Signal] = []
     for observation in observations:
@@ -43,9 +50,11 @@ def analyze_cluster(
     signals.extend(detect_temporal_handoffs(observations))
     signals.extend(detect_periodicity(observations))
     signals.extend(detect_benign_automation(observations))
+    signals.extend(detect_behavioral_signals(observations))
+    signals.extend(detect_commit_metadata_patterns(observations))
     signals.extend(detect_graph_motifs(build_coordination_graph(observations)))
 
-    score = score_cluster(signals, observations, threshold=threshold)
+    score = score_cluster(signals, observations, threshold=threshold, calibration=calibration)
     return EvidenceBundle(
         cluster_id=cluster_id,
         created_at=utcnow(),
@@ -63,10 +72,22 @@ def analyze_cluster(
 
 
 def analyze_observations(
-    observations: list[Observation], threshold: float = 0.60, window_minutes: int = 60
+    observations: list[Observation],
+    threshold: float = 0.60,
+    window_minutes: int = 60,
+    calibration: CalibrationProfile | None = None,
 ) -> list[EvidenceBundle]:
     clusters = cluster_observations(observations, window_minutes=window_minutes)
+    seen = {
+        tuple(sorted(item.event_key or item.source_event_id for item in items))
+        for items in clusters.values()
+    }
+    for cluster_id, items in longitudinal_candidates(observations).items():
+        fingerprint = tuple(sorted(item.event_key or item.source_event_id for item in items))
+        if fingerprint not in seen:
+            clusters[cluster_id] = items
+            seen.add(fingerprint)
     return [
-        analyze_cluster(cluster_id, items, threshold=threshold)
+        analyze_cluster(cluster_id, items, threshold=threshold, calibration=calibration)
         for cluster_id, items in clusters.items()
     ]

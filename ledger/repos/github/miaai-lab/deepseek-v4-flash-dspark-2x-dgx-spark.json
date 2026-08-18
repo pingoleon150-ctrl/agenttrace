@@ -1,0 +1,10 @@
+{
+  "detector_version": "0.4.0",
+  "last_checked_at": "2026-08-18T01:23:41.015009+00:00",
+  "last_event_time": "2026-08-18T00:47:55+00:00",
+  "max_score": 0.0,
+  "observations": 2,
+  "query_version": "093d279063acbb56f83c563dd6ca6beffbc81455b8105bc561f319b28881f973",
+  "repository": "MiaAI-Lab/DeepSeek-v4-Flash-DSpark-2x-DGX-Spark",
+  "status": "no_high_confidence"
+}

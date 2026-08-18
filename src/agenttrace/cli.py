@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from agenttrace import __version__
+from agenttrace.calibration import CalibrationProfile
 from agenttrace.campaign import build_factories, load_queries, run_campaign
 from agenttrace.collectors.gharchive import GHArchiveHourCollector
 from agenttrace.collectors.github import (
@@ -18,13 +19,19 @@ from agenttrace.collectors.github import (
 from agenttrace.collectors.grepapp import GrepAppCollector
 from agenttrace.collectors.jsonl import JsonlCollector
 from agenttrace.config import Settings
+from agenttrace.corpus import evaluate_labeled_corpus
 from agenttrace.ledger import RepositoryLedger, update_ledger
 from agenttrace.models import Observation, Provenance
 from agenttrace.monitor import take_watch_query_batch, watch_cycle
+from agenttrace.notifier import notify_email_alerts
 from agenttrace.pipeline import analyze_cluster, analyze_observations, collect_to_store
+from agenttrace.reviewer import reviewer_from_openclaw, write_findings_html, write_findings_report
+from agenttrace.scoring import score_cluster
+from agenttrace.storage.parquet import write_observation_parquet
 from agenttrace.storage.sqlite import SQLiteStore
 
 DEFAULT_QUERIES_PATH = Path(__file__).with_name("data") / "seed_queries.yaml"
+DEFAULT_CONTINUOUS_OWNERS = ["openai", "anthropics", "google-deepmind", "huggingface", "microsoft"]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -76,10 +83,31 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--max-observations", type=int, default=10000)
     p.add_argument("--max-download-mb", type=float, default=512.0)
     p.add_argument("--reprocess", action="store_true")
+    p.add_argument(
+        "--repository",
+        action="append",
+        default=[],
+        help="Target one repository (owner/name); repeat for a directed replay",
+    )
     p.add_argument("--threshold", type=float, default=0.60)
+    p.add_argument(
+        "--parquet",
+        help="Optional DuckDB/Parquet path for prefiltered canonical archive events",
+    )
 
     p = sub.add_parser("analyze-jsonl", help="Analyze a canonical Observation JSONL file")
     p.add_argument("path")
+    p.add_argument("--threshold", type=float, default=0.60)
+    p.add_argument(
+        "--calibration",
+        help="Optional JSON likelihood-ratio profile; probabilities require a field-valid prior",
+    )
+
+    p = sub.add_parser(
+        "evaluate-corpus", help="Evaluate detectors against labeled scenario ground truth"
+    )
+    p.add_argument("observations", help="Canonical Observation JSONL")
+    p.add_argument("labels", help="Scenario labels JSON")
     p.add_argument("--threshold", type=float, default=0.60)
 
     p = sub.add_parser(
@@ -103,6 +131,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--concurrency", type=int, default=2)
     p.add_argument("--retries", type=int, default=2)
     p.add_argument("--top", type=int, default=20)
+    p.add_argument("--calibration", help="Optional JSON likelihood-ratio profile")
     _add_ledger_arguments(p)
 
     p = sub.add_parser(
@@ -136,6 +165,29 @@ def build_parser() -> argparse.ArgumentParser:
         help="Queries rotated per cycle; cursors persist in SQLite",
     )
     p.add_argument("--once", action="store_true")
+    p.add_argument("--calibration", help="Optional JSON likelihood-ratio profile")
+    p.add_argument(
+        "--auto-review",
+        action="store_true",
+        help="Classify high-tier findings with an OpenClaw-configured LLM and continue",
+    )
+    p.add_argument(
+        "--openclaw-config",
+        default="~/.openclaw/openclaw.json",
+        help="Private OpenClaw configuration read at runtime; never copied into reports",
+    )
+    p.add_argument("--review-provider", default="gateway")
+    p.add_argument("--review-model", help="Override the provider's first configured model")
+    p.add_argument(
+        "--findings-report",
+        default="reports/findings.md",
+        help="Single regenerated public Markdown findings report",
+    )
+    p.add_argument(
+        "--findings-html",
+        default="reports/site/index.html",
+        help="Single regenerated public HTML findings dashboard",
+    )
     _add_ledger_arguments(p)
 
     p = sub.add_parser("review-alert", help="Resolve a paused monitor alert")
@@ -145,12 +197,28 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("db-health", help="Report local database size, event range, and row counts")
 
     p = sub.add_parser(
+        "notify-email", help="Send unnotified monitor alerts through macOS Mail"
+    )
+    p.add_argument("--db", required=True, help="AgentTrace monitor SQLite database")
+    p.add_argument("--recipient", required=True)
+    p.add_argument("--test", action="store_true", help="Send a delivery test without changing state")
+
+    p = sub.add_parser(
         "export-ledger", help="Export analyzed repositories from SQLite to the shared ledger"
     )
     p.add_argument("--queries", default=str(DEFAULT_QUERIES_PATH))
     p.add_argument("--ledger", default="ledger/repos")
     p.add_argument("--limit", type=int, default=100000)
     p.add_argument("--threshold", type=float, default=0.75)
+
+    p = sub.add_parser("export-findings", help="Regenerate public Markdown and HTML reports")
+    p.add_argument("--report", default="reports/findings.md")
+    p.add_argument("--html", default="reports/site/index.html")
+
+    p = sub.add_parser("rescore-findings", help="Recompute stored finding scores with current policy")
+    p.add_argument("--threshold", type=float, default=0.75)
+    p.add_argument("--report", default="reports/findings.md")
+    p.add_argument("--html", default="reports/site/index.html")
 
     return parser
 
@@ -160,13 +228,23 @@ def _add_ledger_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--recheck-repository", action="append", default=[])
     parser.add_argument("--recheck-stale", type=int, metavar="DAYS")
     parser.add_argument("--recheck-all", action="store_true")
+    parser.add_argument(
+        "--continuous-owner",
+        action="append",
+        default=list(DEFAULT_CONTINUOUS_OWNERS),
+        help="GitHub owner never excluded by the analyzed-repository ledger (repeatable)",
+    )
 
 
 def _repository_policy(args):
     ledger = RepositoryLedger(args.ledger)
     requested = set(args.recheck_repository)
+    continuous_owners = {owner.casefold() for owner in args.continuous_owner}
 
     def allowed(repository: str) -> bool:
+        owner = repository.split("/", 1)[0].casefold()
+        if owner in continuous_owners:
+            return True
         return not ledger.should_skip(
             repository,
             recheck_all=args.recheck_all,
@@ -177,11 +255,15 @@ def _repository_policy(args):
     return ledger, allowed
 
 
-async def _run_collector(collector, threshold: float) -> int:
+async def _run_collector(
+    collector, threshold: float, calibration: CalibrationProfile | None = None
+) -> int:
     settings = Settings.from_env()
     with SQLiteStore(settings.db_path) as store:
         observations = await collect_to_store(collector, store)
-        bundles = analyze_observations(observations, threshold=threshold)
+        bundles = analyze_observations(
+            observations, threshold=threshold, calibration=calibration
+        )
         _save_bounded_bundles(store, bundles)
         _print_summary(observations, bundles)
     return 0
@@ -200,6 +282,7 @@ async def _run_gharchive(args) -> int:
         event_types=event_types,
         max_observations=args.max_observations,
         max_download_bytes=int(args.max_download_mb * 1024 * 1024),
+        repositories=set(args.repository),
     )
     with SQLiteStore(settings.db_path) as store:
         partition = store.ingestion_partition("gharchive", collector.hour)
@@ -238,6 +321,8 @@ async def _run_gharchive(args) -> int:
             datetime.now(UTC).isoformat(),
             collector.stats,
         )
+        if args.parquet:
+            write_observation_parquet(args.parquet, observations)
         _print_summary(observations, bundles, ingestion=collector.stats)
     return 0
 
@@ -354,6 +439,7 @@ async def _run_campaign(args) -> int:
         comments=args.comments,
         repository_allowed=repository_allowed,
     )
+    calibration = CalibrationProfile.load(args.calibration) if args.calibration else None
     with SQLiteStore(settings.db_path) as store:
         result = await run_campaign(
             queries,
@@ -365,6 +451,7 @@ async def _run_campaign(args) -> int:
             retries=args.retries,
             repository_allowed=repository_allowed,
             ledger=ledger,
+            calibration=calibration,
         )
     print(json.dumps(result.summary(top=args.top), indent=2))
     return 1 if result.errors and not result.observations else 0
@@ -382,6 +469,12 @@ async def _watch(args) -> int:
         threads=args.threads,
         comments=args.comments,
         repository_allowed=repository_allowed,
+    )
+    calibration = CalibrationProfile.load(args.calibration) if args.calibration else None
+    reviewer = (
+        reviewer_from_openclaw(args.openclaw_config, args.review_provider, args.review_model)
+        if args.auto_review
+        else None
     )
     code_page_size = min(100, max(1, args.limit))
     page_limits = {
@@ -411,6 +504,10 @@ async def _watch(args) -> int:
                 page_steps=page_steps,
                 history_limit=args.history_limit,
                 window_minutes=args.window_minutes,
+                calibration=calibration,
+                reviewer=reviewer,
+                report_path=args.findings_report if reviewer else None,
+                html_report_path=args.findings_html if reviewer else None,
             )
         print(json.dumps(result.as_dict(), indent=2), flush=True)
         if args.once:
@@ -443,7 +540,17 @@ def main() -> int:
     if args.command == "gharchive-hour":
         return asyncio.run(_run_gharchive(args))
     if args.command == "analyze-jsonl":
-        return asyncio.run(_run_collector(JsonlCollector(args.path), args.threshold))
+        calibration = CalibrationProfile.load(args.calibration) if args.calibration else None
+        return asyncio.run(
+            _run_collector(JsonlCollector(args.path), args.threshold, calibration=calibration)
+        )
+    if args.command == "evaluate-corpus":
+        print(
+            json.dumps(
+                evaluate_labeled_corpus(args.observations, args.labels, args.threshold), indent=2
+            )
+        )
+        return 0
     if args.command == "export-reviewable":
         settings = Settings.from_env()
         with SQLiteStore(settings.db_path) as store:
@@ -465,10 +572,43 @@ def main() -> int:
             )
         print(json.dumps({"alert_id": args.alert_id, "status": args.status, "resolved": resolved}))
         return 0 if resolved else 1
+    if args.command == "export-findings":
+        settings = Settings.from_env()
+        with SQLiteStore(settings.db_path) as store:
+            findings = store.monitor_findings()
+        write_findings_report(args.report, findings)
+        write_findings_html(args.html, findings)
+        print(json.dumps({"report": args.report, "html": args.html, "findings": len(findings)}))
+        return 0
+    if args.command == "rescore-findings":
+        settings = Settings.from_env()
+        scores = []
+        with SQLiteStore(settings.db_path) as store:
+            for alert_id, bundle, summary in store.monitor_alert_bundles():
+                bundle.score = score_cluster(
+                    bundle.signals, bundle.observations, threshold=args.threshold
+                )
+                summary.update(
+                    score=bundle.score.score,
+                    priority_score=bundle.score.score,
+                    confidence=bundle.score.confidence,
+                    reasons=bundle.score.reasons,
+                )
+                store.update_monitor_alert_score(alert_id, bundle, summary)
+                scores.append({"id": alert_id, "score": bundle.score.score})
+            findings = store.monitor_findings()
+        write_findings_report(args.report, findings)
+        write_findings_html(args.html, findings)
+        print(json.dumps({"findings": scores, "report": args.report, "html": args.html}))
+        return 0
     if args.command == "db-health":
         settings = Settings.from_env()
         with SQLiteStore(settings.db_path) as store:
             print(json.dumps(store.health(), indent=2))
+        return 0
+    if args.command == "notify-email":
+        sent = notify_email_alerts(args.db, args.recipient, test=args.test)
+        print(json.dumps({"sent": sent, "test": args.test}))
         return 0
     if args.command == "export-ledger":
         settings = Settings.from_env()

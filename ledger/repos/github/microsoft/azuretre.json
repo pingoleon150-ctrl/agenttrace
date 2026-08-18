@@ -1,0 +1,10 @@
+{
+  "detector_version": "0.4.0",
+  "last_checked_at": "2026-08-18T18:11:48.057676+00:00",
+  "last_event_time": "2026-08-11T12:41:17+00:00",
+  "max_score": 0.5701,
+  "observations": 2,
+  "query_version": "b2e9feb809dc271a2e7814c1f5599eb40f3c4aac390c89fccd9511d4d2b9dee6",
+  "repository": "microsoft/AzureTRE",
+  "status": "no_high_confidence"
+}

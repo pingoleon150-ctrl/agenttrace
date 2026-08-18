@@ -1,0 +1,10 @@
+{
+  "detector_version": "0.4.0",
+  "last_checked_at": "2026-08-18T16:29:29.881275+00:00",
+  "last_event_time": "2026-08-18T16:29:05.712215+00:00",
+  "max_score": 0.0,
+  "observations": 1,
+  "query_version": "093d279063acbb56f83c563dd6ca6beffbc81455b8105bc561f319b28881f973",
+  "repository": "snorkel-marlin-repos/ray-project_ray_pr_56245_9294f0e8-3a0c-400a-8b54-adb85c4d0aa3",
+  "status": "no_high_confidence"
+}

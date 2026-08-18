@@ -15,6 +15,11 @@ We focus on signals that are harder to explain with generic AI prose alone:
 - rare artifact propagation between identities;
 - task delegation, acknowledgement, heartbeat, retry, and checkpoint semantics;
 - very fast or highly periodic handoffs;
+- opaque high-entropy exchanges and shared credential-like markers with
+  event-context identifier suppression;
+- continuous multi-actor coverage and cross-repository objective persistence;
+- commit-message uniformity, exact machine-like push timing, and generated
+  author-domain reuse (email local parts are not retained);
 - graph motifs such as leader/worker fan-out and result aggregation;
 - persistence of state across changing identities or execution contexts;
 - cross-platform continuation through the same typed coordination marker or
@@ -111,6 +116,16 @@ agenttrace gharchive-hour --hour 2026-08-16T19 \
   --max-download-mb 512
 ```
 
+For directed replay, repeat `--repository owner/name`. Nonmatching events are
+discarded from raw bytes before JSON decoding, making it practical to revisit
+only repositories promoted by an earlier cheap discovery pass.
+
+Install the archive extra and add `--parquet path/to/hour.parquet` to retain
+the bounded, prefiltered canonical events in a Zstandard-compressed columnar
+file. SQLite remains the small operational store for checkpoints, deduplication,
+alerts, and evidence bundles; it is no longer required to serve as the raw
+historical event warehouse.
+
 Both zero-padded and unpadded input hours are accepted. AgentTrace normalizes
 hours `0` through `9` to GH Archive's unpadded object names.
 
@@ -133,6 +148,21 @@ Analyze an existing JSONL corpus:
 ```bash
 agenttrace analyze-jsonl examples/sample_observations.jsonl
 ```
+
+Evaluate the bundled labeled regression corpus:
+
+```bash
+agenttrace evaluate-corpus \
+  corpus/synthetic-v2/observations.jsonl \
+  corpus/synthetic-v2/labels.json
+```
+
+The report uses labeled scenarios, not individual correlated events, and emits
+a confusion matrix plus smoothed signal-presence likelihood ratios. These are
+in-sample diagnostics. They must not be interpreted as field probabilities.
+An optional external calibration profile can be applied to JSONL analysis with
+`--calibration profile.json`; its posterior is valid only when its corpus and
+deployment prior are valid for the target population.
 
 Run every seed query across GitHub threads, authenticated GitHub code search,
 and grep.app, then deduplicate and rank the combined evidence:
@@ -167,7 +197,7 @@ high bundle containing at least one newly discovered event can pause the
 monitor, which prevents a previously reviewed historical bundle from stopping
 every later cycle.
 
-The monitor stops at the first new reviewable high-tier candidate and prints a
+By default, the monitor stops at the first new reviewable high-tier candidate and prints a
 compact evidence summary. When no alert fires, the five highest-scoring
 non-alert clusters with nonzero scores are returned as the cycle's watchlist.
 The watchlist can contain medium- and low-tier items and always includes each
@@ -181,6 +211,65 @@ In continuous mode the worker remains alive while an alert is pending, performs
 no source requests, and resumes on its next poll after resolution. `--once`
 keeps one-shot behavior and exits with status 2 for a pending alert. Use a
 process supervisor or service manager for crash and reboot persistence.
+
+For continuous LLM-assisted triage, enable automatic review. Every new high-tier
+candidate in the cycle is sanitized, classified through an OpenAI-compatible
+provider already configured in the private OpenClaw configuration, recorded in
+SQLite, and added to one regenerated public report. The monitor continues even
+when classification fails; failed items are labeled `classification-error` for
+later retry instead of blocking collection.
+
+```bash
+export AGENTTRACE_DB=/var/lib/agenttrace/agenttrace.db
+agenttrace watch \
+  --auto-review \
+  --openclaw-config ~/.openclaw/openclaw.json \
+  --review-provider gateway \
+  --findings-report reports/findings.md \
+  --findings-html reports/site/index.html
+```
+
+The API key is read only at runtime. It is never stored in SQLite, the shared
+ledger, monitor output, or `reports/findings.md`. Before transmission, public
+observation text is bounded and common credential patterns are redacted. The
+classifier must distinguish ordinary automation, human collaboration,
+AI-assisted work, semi-autonomous coordination, and evidence of full autonomy;
+the detector score remains a review priority rather than a probability.
+
+Regenerate the report from the local review ledger without making an LLM call:
+
+```bash
+AGENTTRACE_DB=agenttrace-monitor.db agenttrace export-findings \
+  --report reports/findings.md \
+  --html reports/site/index.html
+```
+
+The monitor regenerates both files atomically after each classified finding. The HTML dashboard
+can be published on a trusted home LAN without exposing the database, logs, or OpenClaw config:
+
+```bash
+AGENTTRACE_SITE_DIRECTORY=reports/site \
+AGENTTRACE_REPORT_HOST=0.0.0.0 \
+AGENTTRACE_REPORT_PORT=8765 \
+scripts/run-report-server-macos.sh
+```
+
+Open `http://<laptop-lan-ip>:8765/` from another device on the same network. The read-only page
+auto-refreshes every five minutes, escapes public evidence, and uses a restrictive Content
+Security Policy. This does not create Internet access or router port forwarding.
+
+On macOS, a separate private LaunchAgent can poll the monitor database and send
+each new alert exactly once through the configured Mail.app account:
+
+```bash
+agenttrace notify-email \
+  --db /path/to/agenttrace-monitor.db \
+  --recipient alerts@example.com
+```
+
+The recipient belongs in the local LaunchAgent rather than the repository. A
+one-way hash and the last delivered alert ID are stored in SQLite to suppress
+duplicates; the address itself is not persisted in the database.
 
 On macOS, `scripts/run-monitor-macos.sh` is a supervisor-friendly entry point.
 It reads the existing `gh` CLI credential when no token is already present,
@@ -234,19 +323,35 @@ AgentTrace assigns `high`, `medium`, or `low` to each cluster. The numeric
 `score` is an **operational priority score**, not a calibrated probability that
 an account is an AI agent.
 
-A high-tier alert requires all basic eligibility checks: at least two distinct
-normalized actor labels, complete public provenance, a benign-automation score below
-the suppression ceiling, and a priority score at or above the configured
-threshold. It must then have either two independent strong anchor components or
-a verified full relational exchange. The verified route is either a native
+A high-tier alert requires complete public provenance, a benign-automation
+score below the suppression ceiling, and a priority score at or above the
+configured threshold. It normally requires at least two distinct actors, but a
+longitudinal cross-repository persistence signal may make a single-actor case
+reviewable. Routing then requires two independent strong anchor components, a
+verified full relational exchange, or one narrowly defined exceptional signal
+such as a repeated high-entropy cross-actor exchange or a shared credential
+across identities and repositories. The verified route is either a native
 reply trajectory with distinct delegation, acknowledgement, and result events,
 or a typed-reference trajectory of the same shape spanning at least two
 conversation, resource, or event contexts. A checkpoint-to-resume path is the
 state-transfer equivalent.
 
+Exceptional evidence is a routing rule, not a fixed score. Its priority retains the signal's
+reliability-adjusted strength; it is never promoted to a hard-coded numeric floor. Historical
+findings can be migrated after a policy update with `agenttrace rescore-findings`.
+
+Default discovery includes targeted `agent` and `handoff` searches for `openai`, `anthropics`,
+`google-deepmind`, `huggingface`, and `microsoft`. These owners bypass the normal analyzed-repo
+skip rule so their new activity remains continuously eligible. Add another organization with
+`--continuous-owner OWNER` and a matching owner-qualified seed query.
+
+Three independent strong anchor components produce `decision=confirmed`;
+review routes with fewer components produce `decision=review`. This is an
+operational evidence state, not attribution proof.
+
 The anchor families are typed artifact reuse, relational semantic exchange,
-and shared identity markers. Protocol, temporal, and graph signals provide
-support but are not anchors. When a signal declares that it depends on another
+shared identity markers, longitudinal behavior, and commit metadata. Protocol,
+temporal, and graph signals provide support but are not anchors. When a signal declares that it depends on another
 family's evidence, those families are collapsed into one evidence component.
 The component contributes its strongest value plus only a small bounded
 correlated-evidence bonus; it cannot masquerade as two independent anchors.

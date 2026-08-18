@@ -37,6 +37,24 @@ def test_two_strong_independent_families_can_be_reviewable():
     assert result.confidence == "high"
 
 
+def test_exceptional_score_preserves_effective_signal_strength():
+    result = score_cluster(
+        [
+            Signal(
+                family="artifact",
+                name="opaque_exchange",
+                score=0.92,
+                metadata={"exceptional_evidence": True},
+            )
+        ],
+        [obs("a", "1"), obs("b", "2")],
+        threshold=0.75,
+    )
+    assert result.score == 0.874
+    assert result.score != 0.85
+    assert "exceptional_strength=0.87" in result.reasons
+
+
 def test_correlated_families_do_not_count_as_two_anchors():
     signals = [
         Signal(family="artifact", name="reuse", score=0.98),

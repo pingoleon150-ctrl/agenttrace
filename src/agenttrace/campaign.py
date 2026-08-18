@@ -10,13 +10,16 @@ import httpx
 import yaml
 
 from agenttrace import __version__
+from agenttrace.calibration import CalibrationProfile
 from agenttrace.collectors.base import Collector
 from agenttrace.collectors.github import GitHubCodeSearchCollector, GitHubThreadSearchCollector
 from agenttrace.collectors.grepapp import GrepAppCollector
+from agenttrace.collectors.reddit import RedditCollector
 from agenttrace.config import Settings
 from agenttrace.ledger import RepositoryLedger, update_ledger
 from agenttrace.models import EvidenceBundle, Observation
 from agenttrace.pipeline import analyze_observations
+from agenttrace.rate import GOVERNOR
 from agenttrace.storage.sqlite import SQLiteStore
 from agenttrace.util import utcnow
 
@@ -101,6 +104,9 @@ def build_factories(
         "grep": lambda query, page: GrepAppCollector(
             query, limit=limit, settings=settings, start_page=page
         ),
+        "reddit": lambda query, page: RedditCollector(
+            query, limit=limit, comments_per_thread=comments, start_page=page
+        ),
     }
     unknown = sorted(set(sources) - available.keys())
     if unknown:
@@ -121,6 +127,7 @@ async def run_campaign(
     rotate_pages: bool = False,
     page_limits: dict[str, int] | None = None,
     page_steps: dict[str, int] | None = None,
+    calibration: CalibrationProfile | None = None,
 ) -> CampaignResult:
     result = CampaignResult(queries=queries, sources=list(factories))
     seen: set[tuple[str, str | None]] = set()
@@ -168,7 +175,10 @@ async def run_campaign(
             result.observations.append(normalized)
 
     result.bundles = analyze_observations(
-        result.observations, threshold=threshold, window_minutes=window_minutes
+        result.observations,
+        threshold=threshold,
+        window_minutes=window_minutes,
+        calibration=calibration,
     )
     for bundle in result.bundles:
         store.save_bundle(bundle)
@@ -189,17 +199,21 @@ async def _collect_job(
         observations: list[Observation] = []
         try:
             async with semaphore:
+                await GOVERNOR.acquire(source)
                 collector = factory(query, page)
                 async for observation in collector.collect():
                     observations.append(observation)
             exhausted = bool(getattr(collector, "exhausted", False))
+            await GOVERNOR.record(source, None)
             return query, source, page, observations, None, exhausted
         except httpx.HTTPStatusError as exc:
             retryable = exc.response.status_code in {403, 429} or (
                 500 <= exc.response.status_code < 600
             )
             if not retryable or attempt >= retries:
-                return query, source, page, observations, f"{type(exc).__name__}: {exc}", False
+                error = f"{type(exc).__name__}: {exc}"
+                await GOVERNOR.record(source, error)
+                return query, source, page, observations, error, False
             retry_after = exc.response.headers.get("retry-after")
             delay = float(retry_after) if retry_after and retry_after.isdigit() else 2**attempt
             await asyncio.sleep(min(delay, 30.0))

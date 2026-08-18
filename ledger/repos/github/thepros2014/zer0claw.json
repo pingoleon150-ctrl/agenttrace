@@ -1,0 +1,10 @@
+{
+  "detector_version": "0.4.0",
+  "last_checked_at": "2026-08-18T02:47:10.517019+00:00",
+  "last_event_time": "2026-08-18T02:46:55.136244+00:00",
+  "max_score": 0.0,
+  "observations": 1,
+  "query_version": "093d279063acbb56f83c563dd6ca6beffbc81455b8105bc561f319b28881f973",
+  "repository": "thepros2014/zer0claw",
+  "status": "no_high_confidence"
+}

@@ -88,6 +88,10 @@ detector is then applied:
 priority_score = clamp(positive * (1 - 0.65 * benign_score), 0, 1)
 ```
 
+Exceptional evidence routes a cluster using its own reliability-adjusted strength. It does not
+replace the computed priority with a constant floor, preserving ranking resolution between
+exceptional candidates.
+
 Components beyond the strongest three can satisfy corroboration policy but do
 not add another weighted term. The formula is a transparent ranking heuristic.
 It has not been calibrated against a representative base rate of
@@ -430,3 +434,18 @@ Every operational status report should state:
 - rate-limit, truncation, malformed-input, and checkpoint status;
 - that the priority score is not a calibrated probability;
 - that a reviewable cluster is evidence for review, not proof of AI control.
+
+## Continuous LLM review
+
+`watch --auto-review` replaces the manual pause with a bounded LLM review. The
+structured classification is stored separately from detector evidence, the
+single sanitized Markdown report is regenerated, the local alert is resolved,
+and source rotation continues. Provider failures are recorded as
+`classification-error`; they never discard evidence or block discovery. The
+private provider credential is loaded from OpenClaw at runtime and is never
+written to the database, report, ledger, or logs.
+
+The same review ledger generates `reports/site/index.html` atomically. Serving only
+`reports/site/` keeps SQLite, logs, repository files, and private OpenClaw configuration outside
+the web root. `scripts/run-report-server-macos.sh` provides a read-only LAN server; binding it to
+`0.0.0.0` is appropriate only on a trusted home network.

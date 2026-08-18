@@ -7,6 +7,8 @@ __pycache__/
 *.db-shm
 *.db-wal
 agenttrace-monitor.log
+agenttrace-email-notifier.log
+agenttrace-report-server.log
 agenttrace-monitor.pid
 .env
 .DS_Store
@@ -15,3 +17,6 @@ data/derived/
 dist/
 build/
 *.egg-info/
+
+# bulky local data
+external/

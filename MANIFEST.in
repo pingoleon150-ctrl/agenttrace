@@ -1,1 +1,2 @@
 include queries/seed_queries.yaml
+recursive-include corpus *.json *.jsonl *.md

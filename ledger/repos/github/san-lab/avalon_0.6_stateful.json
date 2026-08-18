@@ -1,0 +1,10 @@
+{
+  "detector_version": "0.4.0",
+  "last_checked_at": "2026-08-18T17:37:13.185740+00:00",
+  "last_event_time": "2026-08-18T17:36:38.811934+00:00",
+  "max_score": 0.0,
+  "observations": 2,
+  "query_version": "b2e9feb809dc271a2e7814c1f5599eb40f3c4aac390c89fccd9511d4d2b9dee6",
+  "repository": "san-lab/avalon_0.6_stateful",
+  "status": "no_high_confidence"
+}

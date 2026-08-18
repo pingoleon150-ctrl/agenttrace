@@ -19,3 +19,11 @@ families:
     - '"sandbox" "task_id"'
     - '"tool call" "worker"'
     - '"coordinator" "worker" "result"'
+  priority_ai_labs:
+    - '"agent" org:openai'
+    - '"handoff" org:openai'
+    - '"agent" org:anthropics'
+    - '"handoff" org:anthropics'
+    - '"agent" org:google-deepmind'
+    - '"agent" org:huggingface'
+    - '"agent" org:microsoft'

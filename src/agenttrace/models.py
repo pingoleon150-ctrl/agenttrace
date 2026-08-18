@@ -71,6 +71,9 @@ class ClusterScore(BaseModel):
     actor_count: int
     observation_count: int
     reasons: list[str] = Field(default_factory=list)
+    decision: Literal["dismiss", "watch", "review", "confirmed"] = "dismiss"
+    evidence_log_likelihood_ratio: float | None = None
+    posterior_probability: float | None = None
 
 
 class EvidenceBundle(BaseModel):

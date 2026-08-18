@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from agenttrace.campaign import load_queries
-from agenttrace.cli import DEFAULT_QUERIES_PATH, build_parser
+from agenttrace.cli import DEFAULT_CONTINUOUS_OWNERS, DEFAULT_QUERIES_PATH, build_parser
 
 
 def test_packaged_seed_queries_are_the_cli_default():
@@ -11,3 +11,5 @@ def test_packaged_seed_queries_are_the_cli_default():
     assert Path(args.queries) == DEFAULT_QUERIES_PATH
     assert len(load_queries(args.queries)) >= 10
     assert DEFAULT_QUERIES_PATH.read_bytes() == repository_copy.read_bytes()
+    assert {"openai", "anthropics"}.issubset(DEFAULT_CONTINUOUS_OWNERS)
+    assert '"agent" org:openai' in load_queries(args.queries)

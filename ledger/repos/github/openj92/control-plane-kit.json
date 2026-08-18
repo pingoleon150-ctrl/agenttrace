@@ -1,0 +1,10 @@
+{
+  "detector_version": "0.4.0",
+  "last_checked_at": "2026-08-18T03:31:19.238834+00:00",
+  "last_event_time": "2026-08-07T00:00:55+00:00",
+  "max_score": 0.0,
+  "observations": 8,
+  "query_version": "093d279063acbb56f83c563dd6ca6beffbc81455b8105bc561f319b28881f973",
+  "repository": "OpenJ92/control-plane-kit",
+  "status": "no_high_confidence"
+}
