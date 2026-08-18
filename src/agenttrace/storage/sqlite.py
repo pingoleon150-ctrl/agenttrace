@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
-from typing import Self
+from typing import Any, Self
 
 from agenttrace.models import EvidenceBundle, Observation
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
 CREATE TABLE IF NOT EXISTS observations (
+    event_key TEXT NOT NULL PRIMARY KEY,
     source TEXT NOT NULL,
     source_event_id TEXT NOT NULL,
     event_time TEXT NOT NULL,
@@ -16,12 +18,16 @@ CREATE TABLE IF NOT EXISTS observations (
     repository TEXT,
     thread_id TEXT,
     content_sha256 TEXT,
-    json TEXT NOT NULL,
-    PRIMARY KEY (source, source_event_id)
+    json TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_observations_time ON observations(event_time);
 CREATE INDEX IF NOT EXISTS idx_observations_actor ON observations(actor);
 CREATE INDEX IF NOT EXISTS idx_observations_repo ON observations(repository);
+CREATE INDEX IF NOT EXISTS idx_observations_source_time ON observations(source, event_time);
+CREATE INDEX IF NOT EXISTS idx_observations_source_event
+ON observations(source, source_event_id);
+CREATE INDEX IF NOT EXISTS idx_observations_thread_time
+ON observations(repository, thread_id, event_time);
 CREATE TABLE IF NOT EXISTS evidence_bundles (
     cluster_id TEXT PRIMARY KEY,
     created_at TEXT NOT NULL,
@@ -49,9 +55,27 @@ CREATE TABLE IF NOT EXISTS discovery_cursors (
     updated_at TEXT NOT NULL,
     PRIMARY KEY (source, query)
 );
+CREATE TABLE IF NOT EXISTS discovery_cursor_state (
+    source TEXT NOT NULL,
+    query TEXT NOT NULL,
+    cursor_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (source, query)
+);
 CREATE TABLE IF NOT EXISTS monitor_state (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS ingestion_partitions (
+    source TEXT NOT NULL,
+    partition_key TEXT NOT NULL,
+    status TEXT NOT NULL,
+    cursor TEXT,
+    stats_json TEXT NOT NULL DEFAULT '{}',
+    updated_at TEXT NOT NULL,
+    completed_at TEXT,
+    error TEXT,
+    PRIMARY KEY (source, partition_key)
 );
 """
 
@@ -61,6 +85,8 @@ class SQLiteStore:
         self.path = str(path)
         self.conn = sqlite3.connect(self.path)
         self.conn.execute("PRAGMA foreign_keys=ON")
+        self.conn.execute("PRAGMA busy_timeout=5000")
+        self._migrate_observation_key()
         self.conn.executescript(SCHEMA)
 
     def close(self) -> None:
@@ -73,11 +99,18 @@ class SQLiteStore:
         self.close()
 
     def upsert_observation(self, observation: Observation) -> None:
-        self.conn.execute(
+        self.upsert_observations_batch([observation])
+
+    def upsert_observations_batch(self, observations: list[Observation]) -> None:
+        if not observations:
+            return
+        self.conn.executemany(
             """
-            INSERT INTO observations(source, source_event_id, event_time, actor, repository, thread_id, content_sha256, json)
-            VALUES(?,?,?,?,?,?,?,?)
-            ON CONFLICT(source, source_event_id) DO UPDATE SET
+            INSERT INTO observations(event_key, source, source_event_id, event_time, actor, repository, thread_id, content_sha256, json)
+            VALUES(?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(event_key) DO UPDATE SET
+              source=excluded.source,
+              source_event_id=excluded.source_event_id,
               event_time=excluded.event_time,
               actor=excluded.actor,
               repository=excluded.repository,
@@ -85,15 +118,126 @@ class SQLiteStore:
               content_sha256=excluded.content_sha256,
               json=excluded.json
             """,
+            [
+                (
+                    observation.event_key,
+                    observation.source,
+                    observation.source_event_id,
+                    observation.event_time.isoformat(),
+                    observation.actor,
+                    observation.repository,
+                    observation.thread_id,
+                    observation.content_sha256,
+                    observation.model_dump_json(),
+                )
+                for observation in observations
+            ],
+        )
+        self.conn.commit()
+
+    def _migrate_observation_key(self) -> None:
+        """Move legacy source/event primary keys to the canonical platform event key."""
+        columns = self.conn.execute("PRAGMA table_info(observations)").fetchall()
+        if not columns:
+            return
+        event_key_column = next((column for column in columns if column[1] == "event_key"), None)
+        if event_key_column and event_key_column[5] == 1:
+            return
+
+        self.conn.execute("BEGIN IMMEDIATE")
+        try:
+            self.conn.execute("ALTER TABLE observations RENAME TO observations_legacy")
+            self.conn.execute(
+                """
+                CREATE TABLE observations (
+                    event_key TEXT NOT NULL PRIMARY KEY,
+                    source TEXT NOT NULL,
+                    source_event_id TEXT NOT NULL,
+                    event_time TEXT NOT NULL,
+                    actor TEXT NOT NULL,
+                    repository TEXT,
+                    thread_id TEXT,
+                    content_sha256 TEXT,
+                    json TEXT NOT NULL
+                )
+                """
+            )
+            self.conn.execute(
+                """
+                INSERT INTO observations(
+                    event_key, source, source_event_id, event_time, actor,
+                    repository, thread_id, content_sha256, json
+                )
+                SELECT
+                    COALESCE(
+                        CASE WHEN json_valid(json)
+                            THEN NULLIF(json_extract(json, '$.event_key'), '')
+                        END,
+                        (CASE
+                            WHEN lower(source) LIKE '%github%'
+                                OR lower(source) IN ('gharchive', 'grepapp')
+                            THEN 'github'
+                            ELSE lower(source)
+                        END) || ':event:' || source || ':' || source_event_id
+                    ),
+                    source, source_event_id, event_time, actor, repository,
+                    thread_id, content_sha256, json
+                FROM observations_legacy
+                """
+            )
+            self.conn.execute("DROP TABLE observations_legacy")
+            self.conn.commit()
+        except Exception:
+            self.conn.rollback()
+            raise
+
+    def ingestion_partition(self, source: str, partition_key: str) -> dict | None:
+        row = self.conn.execute(
+            "SELECT status, cursor, stats_json, updated_at, completed_at, error "
+            "FROM ingestion_partitions WHERE source=? AND partition_key=?",
+            (source, partition_key),
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "status": row[0],
+            "cursor": row[1],
+            "stats": json.loads(row[2]),
+            "updated_at": row[3],
+            "completed_at": row[4],
+            "error": row[5],
+        }
+
+    def start_ingestion_partition(self, source: str, partition_key: str, updated_at: str) -> None:
+        self.conn.execute(
+            "INSERT INTO ingestion_partitions(source, partition_key, status, updated_at) "
+            "VALUES(?,?, 'running', ?) ON CONFLICT(source, partition_key) DO UPDATE SET "
+            "status='running', updated_at=excluded.updated_at, completed_at=NULL, error=NULL",
+            (source, partition_key, updated_at),
+        )
+        self.conn.commit()
+
+    def finish_ingestion_partition(
+        self,
+        source: str,
+        partition_key: str,
+        status: str,
+        updated_at: str,
+        stats: dict,
+        error: str | None = None,
+    ) -> None:
+        completed_at = updated_at if status == "complete" else None
+        self.conn.execute(
+            "UPDATE ingestion_partitions SET status=?, stats_json=?, updated_at=?, "
+            "completed_at=?, error=? WHERE source=? AND partition_key=?",
             (
-                observation.source,
-                observation.source_event_id,
-                observation.event_time.isoformat(),
-                observation.actor,
-                observation.repository,
-                observation.thread_id,
-                observation.content_sha256,
-                observation.model_dump_json(),
+                status,
+                json.dumps(stats, sort_keys=True),
+                updated_at,
+                completed_at,
+                error,
+                source,
+                partition_key,
             ),
         )
         self.conn.commit()
@@ -125,6 +269,30 @@ class SQLiteStore:
         ).fetchall()
         return [Observation.model_validate_json(row[0]) for row in rows]
 
+    def health(self) -> dict[str, Any]:
+        counts = {
+            table: int(self.conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+            for table in (
+                "observations",
+                "evidence_bundles",
+                "discovery_fingerprints",
+                "monitor_alerts",
+                "ingestion_partitions",
+            )
+        }
+        event_range = self.conn.execute(
+            "SELECT MIN(event_time), MAX(event_time) FROM observations"
+        ).fetchone()
+        paths = [Path(self.path), Path(f"{self.path}-wal"), Path(f"{self.path}-shm")]
+        return {
+            "database": self.path,
+            "bytes_on_disk": sum(path.stat().st_size for path in paths if path.exists()),
+            "counts": counts,
+            "oldest_event_time": event_range[0],
+            "newest_event_time": event_range[1],
+            "pending_alert": self.pending_alert() is not None,
+        }
+
     def claim_fingerprint(self, fingerprint: str, first_seen: str) -> bool:
         cursor = self.conn.execute(
             "INSERT OR IGNORE INTO discovery_fingerprints(fingerprint, first_seen) VALUES(?,?)",
@@ -153,12 +321,34 @@ class SQLiteStore:
         return selected
 
     def discovery_page(self, source: str, query: str, max_page: int) -> int:
+        generic = self.discovery_cursor(source, query)
+        if isinstance(generic, int):
+            return generic if 1 <= generic <= max(1, max_page) else 1
         row = self.conn.execute(
             "SELECT next_page FROM discovery_cursors WHERE source=? AND query=?",
             (source, query),
         ).fetchone()
         page = int(row[0]) if row else 1
         return page if 1 <= page <= max(1, max_page) else 1
+
+    def discovery_cursor(self, source: str, query: str, default: Any = None) -> Any:
+        """Return an opaque JSON cursor for page, token, timestamp, or offset sources."""
+        row = self.conn.execute(
+            "SELECT cursor_json FROM discovery_cursor_state WHERE source=? AND query=?",
+            (source, query),
+        ).fetchone()
+        return default if row is None else json.loads(row[0])
+
+    def set_discovery_cursor(
+        self, source: str, query: str, cursor: Any, updated_at: str
+    ) -> None:
+        self.conn.execute(
+            "INSERT INTO discovery_cursor_state(source, query, cursor_json, updated_at) "
+            "VALUES(?,?,?,?) ON CONFLICT(source, query) DO UPDATE SET "
+            "cursor_json=excluded.cursor_json, updated_at=excluded.updated_at",
+            (source, query, json.dumps(cursor, sort_keys=True), updated_at),
+        )
+        self.conn.commit()
 
     def advance_discovery_page(
         self,
@@ -178,6 +368,7 @@ class SQLiteStore:
             "next_page=excluded.next_page, updated_at=excluded.updated_at",
             (source, query, next_page, updated_at),
         )
+        self.set_discovery_cursor(source, query, next_page, updated_at)
         self.conn.commit()
 
     def reset_discovery_page(self, source: str, query: str, updated_at: str) -> None:
@@ -187,6 +378,7 @@ class SQLiteStore:
             "next_page=1, updated_at=excluded.updated_at",
             (source, query, updated_at),
         )
+        self.set_discovery_cursor(source, query, 1, updated_at)
         self.conn.commit()
 
     def observations_for_repositories(

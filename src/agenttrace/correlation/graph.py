@@ -4,15 +4,16 @@ import networkx as nx
 
 from agenttrace.detectors.artifact_reuse import extract_artifacts
 from agenttrace.models import Observation, Signal
+from agenttrace.util import sha256_text
 
 
 def build_coordination_graph(observations: list[Observation]) -> nx.DiGraph:
     graph = nx.DiGraph()
-    by_event_id = {o.source_event_id: o for o in observations}
+    by_event_key = {o.event_key: o for o in observations}
 
     for obs in observations:
-        actor_node = f"actor:{obs.actor}"
-        event_node = f"event:{obs.source_event_id}"
+        actor_node = f"actor:{obs.actor_key or obs.actor}"
+        event_node = f"event:{obs.event_key}"
         graph.add_node(actor_node, kind="actor", label=obs.actor)
         graph.add_node(event_node, kind="event", event_type=obs.event_type)
         graph.add_edge(actor_node, event_node, relation="authored", weight=1)
@@ -22,37 +23,19 @@ def build_coordination_graph(observations: list[Observation]) -> nx.DiGraph:
             graph.add_node(repo_node, kind="repository", label=obs.repository)
             graph.add_edge(event_node, repo_node, relation="in_repository", weight=1)
 
-        if obs.reply_to and obs.reply_to in by_event_id:
-            parent = by_event_id[obs.reply_to]
-            parent_event = f"event:{parent.source_event_id}"
+        if obs.parent_key and obs.parent_key in by_event_key:
+            parent = by_event_key[obs.parent_key]
+            parent_event = f"event:{parent.event_key}"
             graph.add_edge(parent_event, event_node, relation="reply_to", weight=1)
-            if parent.actor != obs.actor:
-                _increment_edge(graph, f"actor:{parent.actor}", actor_node, "responded_to")
+            parent_actor = f"actor:{parent.actor_key or parent.actor}"
+            if parent_actor != actor_node:
+                _increment_edge(graph, parent_actor, actor_node, "responded_to")
 
         for artifact in extract_artifacts(obs):
-            artifact_node = f"artifact:{artifact.kind}:{artifact.value}"
+            artifact_node = f"artifact:{artifact.kind}:{sha256_text(artifact.value)}"
             graph.add_node(artifact_node, kind="artifact", artifact_kind=artifact.kind)
             graph.add_edge(event_node, artifact_node, relation="contains", weight=1)
 
-    # Add actor-to-actor edges for shared artifacts.
-    artifact_actors: dict[str, set[str]] = {}
-    for node, data in graph.nodes(data=True):
-        if data.get("kind") != "artifact":
-            continue
-        actors = set()
-        for event_node in graph.predecessors(node):
-            for actor_node in graph.predecessors(event_node):
-                if str(actor_node).startswith("actor:"):
-                    actors.add(actor_node)
-        artifact_actors[node] = actors
-
-    for actors in artifact_actors.values():
-        if len(actors) < 2:
-            continue
-        for left in actors:
-            for right in actors:
-                if left != right:
-                    _increment_edge(graph, left, right, "shared_artifact")
     return graph
 
 

@@ -3,19 +3,23 @@ from __future__ import annotations
 from itertools import pairwise
 from statistics import median
 
+from agenttrace.detectors.artifact_reuse import extract_artifacts
 from agenttrace.models import Observation, Signal
 
 
 def detect_temporal_handoffs(observations: list[Observation]) -> list[Signal]:
-    if len(observations) < 4 or len({o.actor for o in observations}) < 2:
+    if len(observations) < 4 or len({_actor_identity(o) for o in observations}) < 2:
         return []
 
     ordered = sorted(observations, key=lambda o: o.event_time)
     cross_actor_gaps: list[float] = []
     actor_changes = 0
+    causes: set[str] = set()
     for left, right in pairwise(ordered):
-        if left.actor != right.actor:
+        cause = _causal_link(left, right)
+        if _actor_identity(left) != _actor_identity(right) and cause:
             actor_changes += 1
+            causes.add(cause)
             cross_actor_gaps.append(max(0.0, (right.event_time - left.event_time).total_seconds()))
 
     if not cross_actor_gaps:
@@ -30,13 +34,26 @@ def detect_temporal_handoffs(observations: list[Observation]) -> list[Signal]:
             family="temporal",
             name="rapid_cross_actor_handoffs",
             score=score,
-            observation_ids=[o.source_event_id for o in ordered],
+            observation_ids=[o.event_key or o.source_event_id for o in ordered],
+            depends_on=["artifact"] if "shared_artifact" in causes else [],
             evidence=[
                 f"median_cross_actor_gap_seconds={med:.2f}",
                 f"actor_change_density={density:.2f}",
             ],
         )
     ]
+
+
+def _causal_link(left: Observation, right: Observation) -> str | None:
+    if right.parent_key == left.event_key:
+        return "native_reply"
+    if extract_artifacts(left) & extract_artifacts(right):
+        return "shared_artifact"
+    return None
+
+
+def _actor_identity(observation: Observation) -> str:
+    return observation.actor.strip().casefold()
 
 
 def detect_periodicity(observations: list[Observation]) -> list[Signal]:
@@ -59,7 +76,7 @@ def detect_periodicity(observations: list[Observation]) -> list[Signal]:
             family="temporal",
             name="periodic_activity",
             score=min(0.85, 0.35 + regular_fraction * 0.5),
-            observation_ids=[o.source_event_id for o in ordered],
+            observation_ids=[o.event_key or o.source_event_id for o in ordered],
             evidence=[f"median_gap_seconds={med:.2f}", f"regular_fraction={regular_fraction:.2f}"],
         )
     ]

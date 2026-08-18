@@ -4,7 +4,7 @@ AgentTrace is an open-source defensive research platform for detecting **publicl
 
 The project is deliberately not an "AI-written text detector." Its primary unit of detection is a **behavioral trajectory** across actors, artifacts, repositories, threads, services, and time.
 
-> Status: early research alpha. A detection is a hypothesis requiring analyst review, never proof that an account is an AI.
+> Status: operational research alpha. A detection is a hypothesis requiring analyst review, never proof that an account is an AI.
 
 ## Why this project exists
 
@@ -17,18 +17,23 @@ We focus on signals that are harder to explain with generic AI prose alone:
 - very fast or highly periodic handoffs;
 - graph motifs such as leader/worker fan-out and result aggregation;
 - persistence of state across changing identities or execution contexts;
-- cross-platform continuation using the same unique tokens, hashes, URLs, keys, or snippets.
+- cross-platform continuation through the same typed coordination marker or
+  substantial code fingerprint in canonical or imported JSONL observations.
+
+Live discovery is currently GitHub-centric. Canonical observations can already
+represent and correlate other platforms, but live non-GitHub adapters remain
+future work.
 
 ## MVP architecture
 
 ```text
 GitHub REST/Search ─┐
-GH Archive ─────────┼─> collectors -> canonical observations -> SQLite
-                         |                  |
-grep.app (optional) ─┘   |                  +-> artifact extraction
-                         |                  +-> protocol signals
-                         |                  +-> temporal signals
-                         |                  +-> benign-bot suppression
+GH Archive ─────────┼─> collectors -> namespaced observations -> SQLite
+                         |                       |
+grep.app (optional) ─┘   |                       +-> typed artifacts
+                         |                       +-> relational semantics
+                         |                       +-> causal temporal signals
+                         |                       +-> composite benign fingerprints
                          v
                    temporal graph
                          |
@@ -36,10 +41,23 @@ grep.app (optional) ─┘   |                  +-> artifact extraction
                   detector ensemble
                          |
                          v
-                 evidence bundle
+             priority score + decision tier
+                    /              \
+             high: pause       non-alert: top-K watchlist
 ```
 
-The first milestone is GitHub-centric because GitHub gives us precise timestamps, identities, reply relationships, commits, code artifacts, repository context, and large public historical datasets.
+The first milestone is GitHub-centric because GitHub gives us precise
+timestamps, identities, commits, code artifacts, repository context, and large
+public historical datasets. Native pull-request review comments also preserve
+reply relationships; ordinary issue comments are conversation members and are
+not assigned inferred reply edges.
+
+Canonical observations use platform-scoped `actor_key`, `event_key`,
+`parent_key`, resource, and conversation identifiers. Cross-platform or
+cross-resource buckets can merge only through the same typed coordination
+marker or substantial code artifact. Each artifact links at most ten buckets,
+and transitive linked components stop at fifty. Matching usernames never create
+that link.
 
 ## Data sources
 
@@ -47,7 +65,7 @@ The first milestone is GitHub-centric because GitHub gives us precise timestamps
 |---|---|---:|---|
 | GitHub REST/Search | Live issue/PR/code discovery + thread expansion | Optional token; code search requires auth | Implemented |
 | GitHub public Events API | Recent public activity | Optional | Implemented |
-| GH Archive | Historical / large-scale event replay | None for hourly archives | Implemented |
+| GH Archive | Bounded, streaming historical discovery by UTC hour | None for hourly archives | Implemented |
 | grep.app | Fast public-code discovery | None | Experimental adapter |
 | JSONL corpus | Reproducible offline evaluation | None | Implemented |
 
@@ -82,11 +100,33 @@ Search public code through the experimental grep.app adapter:
 agenttrace grep-search --query 'task_id ACK heartbeat' --limit 20
 ```
 
-Replay an hour from GH Archive:
+Run a bounded GH Archive hour. Candidate-looking events are retained, other
+supported events are sampled deterministically, and completed hours are
+checkpointed in SQLite:
 
 ```bash
-agenttrace gharchive-hour --hour 2026-08-16T19 --limit 5000
+agenttrace gharchive-hour --hour 2026-08-16T19 \
+  --sample-rate 0.05 \
+  --max-observations 10000 \
+  --max-download-mb 512
 ```
+
+Both zero-padded and unpadded input hours are accepted. AgentTrace normalizes
+hours `0` through `9` to GH Archive's unpadded object names.
+
+The default event allowlist is `IssuesEvent`, `IssueCommentEvent`,
+`PullRequestEvent`, `PushEvent`, and `CreateEvent`. Use `--event-types` to
+override it, `--limit` to cap raw events scanned, or `--reprocess` to rerun an
+hour whose partition is already marked complete. A completed partition means
+the configured scan reached EOF or its explicit raw-event limit. The accepted
+observation budget reserves 80% for candidates and 20% for deterministic
+background samples; dropped-over-budget counts remain in the ingestion stats.
+
+The archive collector checks event type, event ID, and the cheap candidate
+vocabulary on raw bytes before JSON decoding. Only candidate or deterministically
+sampled records are decoded. Candidate status is then rechecked against the
+normalized event text; for an issue comment this is the comment body, not a copy
+of the issue root text.
 
 Analyze an existing JSONL corpus:
 
@@ -98,13 +138,13 @@ Run every seed query across GitHub threads, authenticated GitHub code search,
 and grep.app, then deduplicate and rank the combined evidence:
 
 ```bash
-export GITHUB_TOKEN=ghp_xxx
-agenttrace campaign --queries queries/seed_queries.yaml
+agenttrace campaign
 ```
 
 Campaigns retry rate limits, continue when one query or source still fails, and
 include those errors in the JSON report. Use `--limit`, `--threads`,
-`--comments`, and `--concurrency` to bound API use.
+`--comments`, and `--concurrency` to bound API use. The seed query file ships
+inside the package; pass `--queries path/to/queries.yaml` to replace it.
 
 Run incremental monitoring with persistent deduplication:
 
@@ -120,18 +160,40 @@ grep.app results. Use `--query-batch-size` to tune the default batch of two.
 Page cursors advance only after a source request succeeds, so rate limits and
 transient failures do not silently skip result pages.
 
-The monitor only scores newly discovered evidence together with stored history.
-It stops at the first reviewable high-confidence candidate and prints a compact
-evidence summary. After human review, resolve the alert and restart the worker:
+Each cycle rescans up to 20,000 recent stored observations inside a 24-hour
+correlation window, so a new event can connect to earlier repositories or
+sources. Tune those bounds with `--history-limit` and `--window-minutes`. Only a
+high bundle containing at least one newly discovered event can pause the
+monitor, which prevents a previously reviewed historical bundle from stopping
+every later cycle.
+
+The monitor stops at the first new reviewable high-tier candidate and prints a
+compact evidence summary. When no alert fires, the five highest-scoring
+non-alert clusters with nonzero scores are returned as the cycle's watchlist.
+The watchlist can contain medium- and low-tier items and always includes each
+item's tier. After human review, resolve the alert:
 
 ```bash
 agenttrace review-alert 1 --status false-positive
-agenttrace watch --threshold 0.75 --interval 300
 ```
 
-Use a process supervisor or container orchestrator to restart the worker after
-review. A pending alert always keeps the monitor paused, so restarts cannot skip
-the review gate.
+In continuous mode the worker remains alive while an alert is pending, performs
+no source requests, and resumes on its next poll after resolution. `--once`
+keeps one-shot behavior and exits with status 2 for a pending alert. Use a
+process supervisor or service manager for crash and reboot persistence.
+
+On macOS, `scripts/run-monitor-macos.sh` is a supervisor-friendly entry point.
+It reads the existing `gh` CLI credential when no token is already present,
+never writes the token to disk, and exposes its bounds through `AGENTTRACE_*`
+environment variables. The script deliberately does not install a LaunchAgent;
+service installation remains a local administrator decision.
+
+Inspect local growth and event coverage. Opening a missing or older database
+will initialize or migrate its schema before reporting health:
+
+```bash
+agenttrace db-health
+```
 
 ## Collaborative repository ledger
 
@@ -166,17 +228,39 @@ By default data is stored in `agenttrace.db`. Override with:
 export AGENTTRACE_DB=/path/to/agenttrace.db
 ```
 
-## What constitutes a candidate detection?
+## Operational decision policy
 
-A cluster becomes reviewable only when multiple independent signal families fire. The default scorer requires:
+AgentTrace assigns `high`, `medium`, or `low` to each cluster. The numeric
+`score` is an **operational priority score**, not a calibrated probability that
+an account is an AI agent.
 
-- at least three independent signal families;
-- at least one high-value signal family (temporal, artifact, graph, or identity);
-- at least two distinct public actors;
-- a score above the configured threshold;
-- preserved provenance for analyst verification.
+A high-tier alert requires all basic eligibility checks: at least two distinct
+normalized actor labels, complete public provenance, a benign-automation score below
+the suppression ceiling, and a priority score at or above the configured
+threshold. It must then have either two independent strong anchor components or
+a verified full relational exchange. The verified route is either a native
+reply trajectory with distinct delegation, acknowledgement, and result events,
+or a typed-reference trajectory of the same shape spanning at least two
+conversation, resource, or event contexts. A checkpoint-to-resume path is the
+state-transfer equivalent.
 
-Known automation such as Dependabot, Renovate, GitHub Actions bots, release bots, and common CI identities is explicitly down-weighted.
+The anchor families are typed artifact reuse, relational semantic exchange,
+and shared identity markers. Protocol, temporal, and graph signals provide
+support but are not anchors. When a signal declares that it depends on another
+family's evidence, those families are collapsed into one evidence component.
+The component contributes its strongest value plus only a small bounded
+correlated-evidence bonus; it cannot masquerade as two independent anchors.
+
+Medium tier starts at `max(0.45, threshold - 0.25)`. It requires either one
+strong anchor with another component or collapsed corroboration, or two anchor
+components. Everything else is low tier. Bot-like identity alone is not enough
+to suppress evidence: the benign detector requires both an automation identity
+or app fingerprint and routine workflow behavior, with repeated templates as
+additional support.
+
+See [`docs/operational-detection.md`](docs/operational-detection.md) for the
+exact routing policy, evaluation metrics, artifact exclusions, and current
+scaling limits.
 
 ## Repository layout
 

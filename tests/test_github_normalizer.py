@@ -29,3 +29,6 @@ def test_issue_comment_event_normalizes():
     assert obs.repository == "org/repo"
     assert obs.thread_id == "7"
     assert "ACK" in (obs.text or "")
+    assert "abc-1234" not in (obs.text or "")
+    assert obs.reply_to is None
+    assert obs.metadata["conversation_root"] == "issue:9"

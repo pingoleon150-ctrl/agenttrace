@@ -5,6 +5,7 @@ import json
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from agenttrace import __version__
 from agenttrace.campaign import CollectorFactory, run_campaign
 from agenttrace.ledger import RepositoryLedger, update_ledger
 from agenttrace.pipeline import analyze_observations
@@ -20,6 +21,7 @@ class WatchResult:
     queries: int = 0
     search_pages: list[dict] | None = None
     errors: list[dict[str, str]] | None = None
+    watchlist: list[dict] | None = None
 
     def as_dict(self) -> dict:
         return {
@@ -30,7 +32,17 @@ class WatchResult:
             "queries": self.queries,
             "search_pages": self.search_pages or [],
             "errors": self.errors or [],
+            "watchlist": self.watchlist or [],
         }
+
+
+def take_watch_query_batch(
+    store: SQLiteStore, queries: list[str], batch_size: int
+) -> list[str]:
+    """Advance the query cursor only when source collection is not paused."""
+    if store.pending_alert():
+        return []
+    return store.take_query_batch(queries, batch_size)
 
 
 async def watch_cycle(
@@ -45,6 +57,8 @@ async def watch_cycle(
     ledger_queries: list[str] | None = None,
     page_limits: dict[str, int] | None = None,
     page_steps: dict[str, int] | None = None,
+    history_limit: int = 20_000,
+    window_minutes: int = 1_440,
 ) -> WatchResult:
     pending = store.pending_alert()
     if pending:
@@ -62,15 +76,27 @@ async def watch_cycle(
         page_limits=page_limits,
         page_steps=page_steps,
     )
-    repositories = {obs.repository for obs in campaign.observations if obs.repository}
-    history = store.observations_for_repositories(repositories)
-    bundles = analyze_observations(history, threshold=threshold)
+    history = store.list_observations(max(1, history_limit))
+    bundles = analyze_observations(
+        history, threshold=threshold, window_minutes=max(1, window_minutes)
+    )
     if ledger:
         update_ledger(
-            ledger, campaign.observations, bundles, ledger_queries or queries, "0.2.0"
+            ledger, campaign.observations, bundles, ledger_queries or queries, __version__
         )
-    candidates = [bundle for bundle in bundles if bundle.score.reviewable]
+    new_event_keys = {obs.event_key for obs in campaign.observations}
+    candidates = [
+        bundle
+        for bundle in bundles
+        if bundle.score.reviewable
+        and any(obs.event_key in new_event_keys for obs in bundle.observations)
+    ]
     if not candidates:
+        watchlist = [
+            _public_bundle(bundle)
+            for bundle in sorted(bundles, key=lambda item: item.score.score, reverse=True)
+            if not bundle.score.reviewable and bundle.score.score > 0
+        ][:5]
         return WatchResult(
             state="watching",
             observations=len(campaign.observations),
@@ -78,6 +104,7 @@ async def watch_cycle(
             queries=len(queries),
             search_pages=campaign.search_pages,
             errors=campaign.errors,
+            watchlist=watchlist,
         )
 
     bundle = max(candidates, key=lambda item: item.score.score)
@@ -88,6 +115,8 @@ async def watch_cycle(
         {
             "cluster_id": bundle.cluster_id,
             "score": bundle.score.score,
+            "priority_score": bundle.score.score,
+            "confidence": bundle.score.confidence,
             "actors": bundle.actors,
             "reasons": bundle.score.reasons,
             "provenance": sorted({obs.provenance.url for obs in bundle.observations})[:20],
@@ -109,3 +138,15 @@ async def watch_cycle(
 
 def _public_alert(alert: dict) -> dict:
     return {"id": alert["id"], "status": alert["status"], "summary": alert["summary"]}
+
+
+def _public_bundle(bundle) -> dict:
+    return {
+        "cluster_id": bundle.cluster_id,
+        "score": bundle.score.score,
+        "priority_score": bundle.score.score,
+        "confidence": bundle.score.confidence,
+        "actors": bundle.actors,
+        "reasons": bundle.score.reasons,
+        "provenance": sorted({obs.provenance.url for obs in bundle.observations})[:5],
+    }

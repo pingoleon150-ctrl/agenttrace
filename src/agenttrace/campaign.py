@@ -9,6 +9,7 @@ from typing import Any
 import httpx
 import yaml
 
+from agenttrace import __version__
 from agenttrace.collectors.base import Collector
 from agenttrace.collectors.github import GitHubCodeSearchCollector, GitHubThreadSearchCollector
 from agenttrace.collectors.grepapp import GrepAppCollector
@@ -46,6 +47,7 @@ class CampaignResult:
                 {
                     "cluster_id": bundle.cluster_id,
                     "score": bundle.score.score,
+                    "priority_score": bundle.score.score,
                     "reviewable": bundle.score.reviewable,
                     "actors": bundle.actors,
                     "reasons": bundle.score.reasons,
@@ -171,7 +173,7 @@ async def run_campaign(
     for bundle in result.bundles:
         store.save_bundle(bundle)
     if ledger:
-        update_ledger(ledger, result.observations, result.bundles, queries, "0.2.0")
+        update_ledger(ledger, result.observations, result.bundles, queries, __version__)
     return result
 
 

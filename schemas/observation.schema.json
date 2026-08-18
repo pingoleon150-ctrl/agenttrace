@@ -18,6 +18,12 @@
     "source_event_id": {
       "type": "string"
     },
+    "event_key": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "observed_at": {
       "type": "string",
       "format": "date-time"
@@ -28,6 +34,18 @@
     },
     "actor": {
       "type": "string"
+    },
+    "platform": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "actor_key": {
+      "type": [
+        "string",
+        "null"
+      ]
     },
     "event_type": {
       "type": "string"
@@ -44,13 +62,31 @@
         "null"
       ]
     },
+    "resource_key": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "thread_id": {
       "type": [
         "string",
         "null"
       ]
     },
+    "conversation_key": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "reply_to": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "parent_key": {
       "type": [
         "string",
         "null"

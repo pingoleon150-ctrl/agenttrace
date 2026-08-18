@@ -6,5 +6,5 @@ authors:
   - name: pingoleon150-ctrl
 license: Apache-2.0
 repository-code: "https://github.com/pingoleon150-ctrl/agenttrace"
-version: 0.2.0
-date-released: 2026-08-16
+version: 0.3.0
+date-released: 2026-08-17

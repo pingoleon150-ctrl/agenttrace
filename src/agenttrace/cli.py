@@ -4,7 +4,9 @@ import argparse
 import asyncio
 import json
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
+from agenttrace import __version__
 from agenttrace.campaign import build_factories, load_queries, run_campaign
 from agenttrace.collectors.gharchive import GHArchiveHourCollector
 from agenttrace.collectors.github import (
@@ -18,15 +20,18 @@ from agenttrace.collectors.jsonl import JsonlCollector
 from agenttrace.config import Settings
 from agenttrace.ledger import RepositoryLedger, update_ledger
 from agenttrace.models import Observation, Provenance
-from agenttrace.monitor import watch_cycle
+from agenttrace.monitor import take_watch_query_batch, watch_cycle
 from agenttrace.pipeline import analyze_cluster, analyze_observations, collect_to_store
 from agenttrace.storage.sqlite import SQLiteStore
+
+DEFAULT_QUERIES_PATH = Path(__file__).with_name("data") / "seed_queries.yaml"
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="agenttrace", description="Detect public agent-coordination patterns"
     )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("demo", help="Run a deterministic synthetic coordination demo")
@@ -62,7 +67,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("gharchive-hour", help="Replay one GH Archive hourly file")
     p.add_argument("--hour", required=True, help="YYYY-MM-DDTHH or YYYY-MM-DD-HH in UTC")
-    p.add_argument("--limit", type=int, default=None)
+    p.add_argument("--limit", type=int, default=None, help="Optional raw-event scan cap")
+    p.add_argument("--sample-rate", type=float, default=0.05)
+    p.add_argument(
+        "--event-types",
+        default="IssuesEvent,IssueCommentEvent,PullRequestEvent,PushEvent,CreateEvent",
+    )
+    p.add_argument("--max-observations", type=int, default=10000)
+    p.add_argument("--max-download-mb", type=float, default=512.0)
+    p.add_argument("--reprocess", action="store_true")
     p.add_argument("--threshold", type=float, default=0.60)
 
     p = sub.add_parser("analyze-jsonl", help="Analyze a canonical Observation JSONL file")
@@ -76,7 +89,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--threshold", type=float, default=0.60)
 
     p = sub.add_parser("campaign", help="Run a multi-query, multi-source discovery campaign")
-    p.add_argument("--queries", default="queries/seed_queries.yaml")
+    p.add_argument("--queries", default=str(DEFAULT_QUERIES_PATH))
     p.add_argument(
         "--sources",
         default="github-thread,github-code,grep",
@@ -93,9 +106,9 @@ def build_parser() -> argparse.ArgumentParser:
     _add_ledger_arguments(p)
 
     p = sub.add_parser(
-        "watch", help="Continuously discover new evidence and pause on a high-confidence candidate"
+        "watch", help="Continuously discover new evidence and pause on a reviewable high-tier candidate"
     )
-    p.add_argument("--queries", default="queries/seed_queries.yaml")
+    p.add_argument("--queries", default=str(DEFAULT_QUERIES_PATH))
     p.add_argument("--sources", default="github-thread,github-code,grep")
     p.add_argument("--limit", type=int, default=20)
     p.add_argument("--threads", type=int, default=5)
@@ -104,6 +117,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--concurrency", type=int, default=2)
     p.add_argument("--retries", type=int, default=2)
     p.add_argument("--interval", type=int, default=300)
+    p.add_argument(
+        "--history-limit",
+        type=int,
+        default=20000,
+        help="Recent observations rescored each cycle for longitudinal/cross-resource links",
+    )
+    p.add_argument(
+        "--window-minutes",
+        type=int,
+        default=1440,
+        help="Correlation window for monitor history (default: 24 hours)",
+    )
     p.add_argument(
         "--query-batch-size",
         type=int,
@@ -117,10 +142,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("alert_id", type=int)
     p.add_argument("--status", choices=["reviewed", "false-positive", "escalated"], required=True)
 
+    sub.add_parser("db-health", help="Report local database size, event range, and row counts")
+
     p = sub.add_parser(
         "export-ledger", help="Export analyzed repositories from SQLite to the shared ledger"
     )
-    p.add_argument("--queries", default="queries/seed_queries.yaml")
+    p.add_argument("--queries", default=str(DEFAULT_QUERIES_PATH))
     p.add_argument("--ledger", default="ledger/repos")
     p.add_argument("--limit", type=int, default=100000)
     p.add_argument("--threshold", type=float, default=0.75)
@@ -155,22 +182,89 @@ async def _run_collector(collector, threshold: float) -> int:
     with SQLiteStore(settings.db_path) as store:
         observations = await collect_to_store(collector, store)
         bundles = analyze_observations(observations, threshold=threshold)
-        for bundle in bundles:
-            store.save_bundle(bundle)
+        _save_bounded_bundles(store, bundles)
         _print_summary(observations, bundles)
     return 0
 
 
-def _print_summary(observations, bundles) -> None:
+async def _run_gharchive(args) -> int:
+    settings = Settings.from_env()
+    event_types = {value.strip() for value in args.event_types.split(",") if value.strip()}
+    if not event_types:
+        raise ValueError("--event-types must contain at least one event type")
+    collector = GHArchiveHourCollector(
+        args.hour,
+        args.limit,
+        settings,
+        sample_rate=args.sample_rate,
+        event_types=event_types,
+        max_observations=args.max_observations,
+        max_download_bytes=int(args.max_download_mb * 1024 * 1024),
+    )
+    with SQLiteStore(settings.db_path) as store:
+        partition = store.ingestion_partition("gharchive", collector.hour)
+        if partition and partition["status"] == "complete" and not args.reprocess:
+            print(
+                json.dumps(
+                    {
+                        "state": "skipped",
+                        "reason": "partition_complete",
+                        "partition": collector.hour,
+                        "stats": partition["stats"],
+                    },
+                    indent=2,
+                )
+            )
+            return 0
+        store.start_ingestion_partition("gharchive", collector.hour, datetime.now(UTC).isoformat())
+        try:
+            observations = await collect_to_store(collector, store)
+            bundles = analyze_observations(observations, threshold=args.threshold)
+            _save_bounded_bundles(store, bundles)
+        except Exception as exc:
+            store.finish_ingestion_partition(
+                "gharchive",
+                collector.hour,
+                "failed",
+                datetime.now(UTC).isoformat(),
+                collector.stats,
+                f"{type(exc).__name__}: {exc}",
+            )
+            raise
+        store.finish_ingestion_partition(
+            "gharchive",
+            collector.hour,
+            "complete",
+            datetime.now(UTC).isoformat(),
+            collector.stats,
+        )
+        _print_summary(observations, bundles, ingestion=collector.stats)
+    return 0
+
+
+def _save_bounded_bundles(store: SQLiteStore, bundles, limit: int = 100) -> None:
+    ranked = sorted(bundles, key=lambda bundle: bundle.score.score, reverse=True)
+    selected = {bundle.cluster_id: bundle for bundle in ranked[:limit]}
+    selected.update({bundle.cluster_id: bundle for bundle in bundles if bundle.score.reviewable})
+    for bundle in selected.values():
+        store.save_bundle(bundle)
+
+
+def _print_summary(observations, bundles, ingestion: dict | None = None) -> None:
     reviewable = [b for b in bundles if b.score.reviewable]
     result = {
         "observations": len(observations),
         "clusters": len(bundles),
         "reviewable_clusters": len(reviewable),
+        "confidence": {
+            level: sum(1 for bundle in bundles if bundle.score.confidence == level)
+            for level in ("high", "medium", "low")
+        },
         "top_clusters": [
             {
                 "cluster_id": b.cluster_id,
                 "score": b.score.score,
+                "priority_score": b.score.score,
                 "reviewable": b.score.reviewable,
                 "actors": b.actors,
                 "reasons": b.score.reasons,
@@ -179,6 +273,8 @@ def _print_summary(observations, bundles) -> None:
             for b in sorted(bundles, key=lambda x: x.score.score, reverse=True)[:20]
         ],
     }
+    if ingestion is not None:
+        result["ingestion"] = ingestion
     print(json.dumps(result, indent=2))
 
 
@@ -193,7 +289,7 @@ def _demo() -> int:
             event_time=t0,
             actor="coord",
             event_type="post",
-            text=f"TASK-ID: probe-991 delegate worker. nonce={common_artifact}",
+            text=f"Delegate task_id=probe-9917 to worker. nonce={common_artifact}",
             repository="demo/swarm",
             thread_id="42",
             code_blocks=[common_artifact],
@@ -206,7 +302,7 @@ def _demo() -> int:
             event_time=t0 + timedelta(seconds=8),
             actor="worker-a",
             event_type="reply",
-            text=f"ACK task probe-991 seq=2 {common_artifact}",
+            text=f"ACK task_id=probe-9917 nonce={common_artifact}",
             repository="demo/swarm",
             thread_id="42",
             reply_to="1",
@@ -233,14 +329,14 @@ def _demo() -> int:
             event_time=t0 + timedelta(seconds=25),
             actor="worker-a",
             event_type="reply",
-            text="ACK result completed report back",
+            text="Task completed task_id=probe-9917; result: success",
             repository="demo/swarm",
             thread_id="42",
-            reply_to="3",
+            reply_to="1",
             provenance=Provenance(url="https://example.invalid/4"),
         ),
     ]
-    bundle = analyze_cluster("demo:swarm:42", observations, threshold=0.50)
+    bundle = analyze_cluster("demo:swarm:42", observations, threshold=0.75)
     print(bundle.model_dump_json(indent=2))
     return 0
 
@@ -300,7 +396,7 @@ async def _watch(args) -> int:
     }
     while True:
         with SQLiteStore(settings.db_path) as store:
-            queries = store.take_query_batch(all_queries, args.query_batch_size)
+            queries = take_watch_query_batch(store, all_queries, args.query_batch_size)
             result = await watch_cycle(
                 queries,
                 factories,
@@ -313,9 +409,11 @@ async def _watch(args) -> int:
                 ledger_queries=all_queries,
                 page_limits=page_limits,
                 page_steps=page_steps,
+                history_limit=args.history_limit,
+                window_minutes=args.window_minutes,
             )
         print(json.dumps(result.as_dict(), indent=2), flush=True)
-        if result.state == "paused" or args.once:
+        if args.once:
             return 2 if result.state == "paused" else 0
         await asyncio.sleep(max(1, args.interval))
 
@@ -343,9 +441,7 @@ def main() -> int:
     if args.command == "grep-search":
         return asyncio.run(_run_collector(GrepAppCollector(args.query, args.limit), args.threshold))
     if args.command == "gharchive-hour":
-        return asyncio.run(
-            _run_collector(GHArchiveHourCollector(args.hour, args.limit), args.threshold)
-        )
+        return asyncio.run(_run_gharchive(args))
     if args.command == "analyze-jsonl":
         return asyncio.run(_run_collector(JsonlCollector(args.path), args.threshold))
     if args.command == "export-reviewable":
@@ -369,6 +465,11 @@ def main() -> int:
             )
         print(json.dumps({"alert_id": args.alert_id, "status": args.status, "resolved": resolved}))
         return 0 if resolved else 1
+    if args.command == "db-health":
+        settings = Settings.from_env()
+        with SQLiteStore(settings.db_path) as store:
+            print(json.dumps(store.health(), indent=2))
+        return 0
     if args.command == "export-ledger":
         settings = Settings.from_env()
         queries = load_queries(args.queries)
@@ -376,7 +477,7 @@ def main() -> int:
             observations = store.list_observations(args.limit)
         bundles = analyze_observations(observations, threshold=args.threshold)
         paths = update_ledger(
-            RepositoryLedger(args.ledger), observations, bundles, queries, "0.2.0"
+            RepositoryLedger(args.ledger), observations, bundles, queries, __version__
         )
         print(json.dumps({"repositories": len(paths), "ledger": args.ledger}))
         return 0
