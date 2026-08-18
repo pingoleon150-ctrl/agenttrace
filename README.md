@@ -197,7 +197,7 @@ high bundle containing at least one newly discovered event can pause the
 monitor, which prevents a previously reviewed historical bundle from stopping
 every later cycle.
 
-The monitor stops at the first new reviewable high-tier candidate and prints a
+By default, the monitor stops at the first new reviewable high-tier candidate and prints a
 compact evidence summary. When no alert fires, the five highest-scoring
 non-alert clusters with nonzero scores are returned as the cycle's watchlist.
 The watchlist can contain medium- and low-tier items and always includes each
@@ -211,6 +211,36 @@ In continuous mode the worker remains alive while an alert is pending, performs
 no source requests, and resumes on its next poll after resolution. `--once`
 keeps one-shot behavior and exits with status 2 for a pending alert. Use a
 process supervisor or service manager for crash and reboot persistence.
+
+For continuous LLM-assisted triage, enable automatic review. Every new high-tier
+candidate in the cycle is sanitized, classified through an OpenAI-compatible
+provider already configured in the private OpenClaw configuration, recorded in
+SQLite, and added to one regenerated public report. The monitor continues even
+when classification fails; failed items are labeled `classification-error` for
+later retry instead of blocking collection.
+
+```bash
+export AGENTTRACE_DB=/var/lib/agenttrace/agenttrace.db
+agenttrace watch \
+  --auto-review \
+  --openclaw-config ~/.openclaw/openclaw.json \
+  --review-provider gateway \
+  --findings-report reports/findings.md
+```
+
+The API key is read only at runtime. It is never stored in SQLite, the shared
+ledger, monitor output, or `reports/findings.md`. Before transmission, public
+observation text is bounded and common credential patterns are redacted. The
+classifier must distinguish ordinary automation, human collaboration,
+AI-assisted work, semi-autonomous coordination, and evidence of full autonomy;
+the detector score remains a review priority rather than a probability.
+
+Regenerate the report from the local review ledger without making an LLM call:
+
+```bash
+AGENTTRACE_DB=agenttrace-monitor.db agenttrace export-findings \
+  --report reports/findings.md
+```
 
 On macOS, a separate private LaunchAgent can poll the monitor database and send
 each new alert exactly once through the configured Mail.app account:

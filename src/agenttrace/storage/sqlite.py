@@ -48,6 +48,14 @@ CREATE TABLE IF NOT EXISTS monitor_alerts (
     summary TEXT NOT NULL,
     json TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS monitor_reviews (
+    alert_id INTEGER PRIMARY KEY,
+    reviewer TEXT NOT NULL,
+    model TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    classification TEXT NOT NULL,
+    FOREIGN KEY (alert_id) REFERENCES monitor_alerts(id)
+);
 CREATE TABLE IF NOT EXISTS discovery_cursors (
     source TEXT NOT NULL,
     query TEXT NOT NULL,
@@ -423,3 +431,42 @@ class SQLiteStore:
         )
         self.conn.commit()
         return cursor.rowcount == 1
+
+    def save_monitor_review(
+        self,
+        alert_id: int,
+        reviewer: str,
+        model: str,
+        created_at: str,
+        classification: dict[str, Any],
+    ) -> None:
+        self.conn.execute(
+            "INSERT INTO monitor_reviews(alert_id, reviewer, model, created_at, classification) "
+            "VALUES(?,?,?,?,?) ON CONFLICT(alert_id) DO UPDATE SET "
+            "reviewer=excluded.reviewer, model=excluded.model, "
+            "created_at=excluded.created_at, classification=excluded.classification",
+            (alert_id, reviewer, model, created_at, json.dumps(classification, sort_keys=True)),
+        )
+        self.conn.commit()
+
+    def monitor_findings(self) -> list[dict[str, Any]]:
+        rows = self.conn.execute(
+            "SELECT a.id, a.created_at, a.status, a.reviewed_at, a.summary, "
+            "r.reviewer, r.model, r.created_at, r.classification "
+            "FROM monitor_alerts a LEFT JOIN monitor_reviews r ON r.alert_id=a.id "
+            "ORDER BY a.id"
+        ).fetchall()
+        return [
+            {
+                "id": row[0],
+                "created_at": row[1],
+                "status": row[2],
+                "reviewed_at": row[3],
+                "summary": json.loads(row[4]),
+                "reviewer": row[5],
+                "model": row[6],
+                "classification_created_at": row[7],
+                "classification": json.loads(row[8]) if row[8] else None,
+            }
+            for row in rows
+        ]

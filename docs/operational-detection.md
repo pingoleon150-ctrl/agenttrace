@@ -430,3 +430,13 @@ Every operational status report should state:
 - rate-limit, truncation, malformed-input, and checkpoint status;
 - that the priority score is not a calibrated probability;
 - that a reviewable cluster is evidence for review, not proof of AI control.
+
+## Continuous LLM review
+
+`watch --auto-review` replaces the manual pause with a bounded LLM review. The
+structured classification is stored separately from detector evidence, the
+single sanitized Markdown report is regenerated, the local alert is resolved,
+and source rotation continues. Provider failures are recorded as
+`classification-error`; they never discard evidence or block discovery. The
+private provider credential is loaded from OpenClaw at runtime and is never
+written to the database, report, ledger, or logs.

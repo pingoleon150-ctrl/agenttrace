@@ -31,10 +31,27 @@ monitor_threshold=${AGENTTRACE_THRESHOLD:-0.75}
 query_batch_size=${AGENTTRACE_QUERY_BATCH_SIZE:-2}
 history_limit=${AGENTTRACE_HISTORY_LIMIT:-20000}
 window_minutes=${AGENTTRACE_WINDOW_MINUTES:-1440}
+auto_review=${AGENTTRACE_AUTO_REVIEW:-0}
+openclaw_config=${AGENTTRACE_OPENCLAW_CONFIG:-"$HOME/.openclaw/openclaw.json"}
+review_provider=${AGENTTRACE_REVIEW_PROVIDER:-gateway}
+findings_report=${AGENTTRACE_FINDINGS_REPORT:-"$repository_directory/reports/findings.md"}
 
-exec /usr/bin/caffeinate -i "$agenttrace_binary" watch \
-  --threshold "$monitor_threshold" \
-  --interval "$monitor_interval" \
-  --query-batch-size "$query_batch_size" \
-  --history-limit "$history_limit" \
+monitor_arguments=(
+  watch
+  --threshold "$monitor_threshold"
+  --interval "$monitor_interval"
+  --query-batch-size "$query_batch_size"
+  --history-limit "$history_limit"
   --window-minutes "$window_minutes"
+)
+
+if [[ "$auto_review" == "1" ]]; then
+  monitor_arguments+=(
+    --auto-review
+    --openclaw-config "$openclaw_config"
+    --review-provider "$review_provider"
+    --findings-report "$findings_report"
+  )
+fi
+
+exec /usr/bin/caffeinate -i "$agenttrace_binary" "${monitor_arguments[@]}"

@@ -25,6 +25,7 @@ from agenttrace.models import Observation, Provenance
 from agenttrace.monitor import take_watch_query_batch, watch_cycle
 from agenttrace.notifier import notify_email_alerts
 from agenttrace.pipeline import analyze_cluster, analyze_observations, collect_to_store
+from agenttrace.reviewer import reviewer_from_openclaw, write_findings_report
 from agenttrace.storage.parquet import write_observation_parquet
 from agenttrace.storage.sqlite import SQLiteStore
 
@@ -163,6 +164,23 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--once", action="store_true")
     p.add_argument("--calibration", help="Optional JSON likelihood-ratio profile")
+    p.add_argument(
+        "--auto-review",
+        action="store_true",
+        help="Classify high-tier findings with an OpenClaw-configured LLM and continue",
+    )
+    p.add_argument(
+        "--openclaw-config",
+        default="~/.openclaw/openclaw.json",
+        help="Private OpenClaw configuration read at runtime; never copied into reports",
+    )
+    p.add_argument("--review-provider", default="gateway")
+    p.add_argument("--review-model", help="Override the provider's first configured model")
+    p.add_argument(
+        "--findings-report",
+        default="reports/findings.md",
+        help="Single regenerated public Markdown findings report",
+    )
     _add_ledger_arguments(p)
 
     p = sub.add_parser("review-alert", help="Resolve a paused monitor alert")
@@ -185,6 +203,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--ledger", default="ledger/repos")
     p.add_argument("--limit", type=int, default=100000)
     p.add_argument("--threshold", type=float, default=0.75)
+
+    p = sub.add_parser("export-findings", help="Regenerate the public findings Markdown report")
+    p.add_argument("--report", default="reports/findings.md")
 
     return parser
 
@@ -427,6 +448,11 @@ async def _watch(args) -> int:
         repository_allowed=repository_allowed,
     )
     calibration = CalibrationProfile.load(args.calibration) if args.calibration else None
+    reviewer = (
+        reviewer_from_openclaw(args.openclaw_config, args.review_provider, args.review_model)
+        if args.auto_review
+        else None
+    )
     code_page_size = min(100, max(1, args.limit))
     page_limits = {
         "github-thread": max(1, 1000 // max(1, args.threads)),
@@ -456,6 +482,8 @@ async def _watch(args) -> int:
                 history_limit=args.history_limit,
                 window_minutes=args.window_minutes,
                 calibration=calibration,
+                reviewer=reviewer,
+                report_path=args.findings_report if reviewer else None,
             )
         print(json.dumps(result.as_dict(), indent=2), flush=True)
         if args.once:
@@ -520,6 +548,13 @@ def main() -> int:
             )
         print(json.dumps({"alert_id": args.alert_id, "status": args.status, "resolved": resolved}))
         return 0 if resolved else 1
+    if args.command == "export-findings":
+        settings = Settings.from_env()
+        with SQLiteStore(settings.db_path) as store:
+            findings = store.monitor_findings()
+        write_findings_report(args.report, findings)
+        print(json.dumps({"report": args.report, "findings": len(findings)}))
+        return 0
     if args.command == "db-health":
         settings = Settings.from_env()
         with SQLiteStore(settings.db_path) as store:
