@@ -440,3 +440,8 @@ and source rotation continues. Provider failures are recorded as
 `classification-error`; they never discard evidence or block discovery. The
 private provider credential is loaded from OpenClaw at runtime and is never
 written to the database, report, ledger, or logs.
+
+The same review ledger generates `reports/site/index.html` atomically. Serving only
+`reports/site/` keeps SQLite, logs, repository files, and private OpenClaw configuration outside
+the web root. `scripts/run-report-server-macos.sh` provides a read-only LAN server; binding it to
+`0.0.0.0` is appropriate only on a trusted home network.

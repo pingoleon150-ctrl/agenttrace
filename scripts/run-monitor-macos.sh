@@ -35,6 +35,7 @@ auto_review=${AGENTTRACE_AUTO_REVIEW:-0}
 openclaw_config=${AGENTTRACE_OPENCLAW_CONFIG:-"$HOME/.openclaw/openclaw.json"}
 review_provider=${AGENTTRACE_REVIEW_PROVIDER:-gateway}
 findings_report=${AGENTTRACE_FINDINGS_REPORT:-"$repository_directory/reports/findings.md"}
+findings_html=${AGENTTRACE_FINDINGS_HTML:-"$repository_directory/reports/site/index.html"}
 
 monitor_arguments=(
   watch
@@ -51,6 +52,7 @@ if [[ "$auto_review" == "1" ]]; then
     --openclaw-config "$openclaw_config"
     --review-provider "$review_provider"
     --findings-report "$findings_report"
+    --findings-html "$findings_html"
   )
 fi
 

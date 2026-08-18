@@ -25,7 +25,7 @@ from agenttrace.models import Observation, Provenance
 from agenttrace.monitor import take_watch_query_batch, watch_cycle
 from agenttrace.notifier import notify_email_alerts
 from agenttrace.pipeline import analyze_cluster, analyze_observations, collect_to_store
-from agenttrace.reviewer import reviewer_from_openclaw, write_findings_report
+from agenttrace.reviewer import reviewer_from_openclaw, write_findings_html, write_findings_report
 from agenttrace.storage.parquet import write_observation_parquet
 from agenttrace.storage.sqlite import SQLiteStore
 
@@ -181,6 +181,11 @@ def build_parser() -> argparse.ArgumentParser:
         default="reports/findings.md",
         help="Single regenerated public Markdown findings report",
     )
+    p.add_argument(
+        "--findings-html",
+        default="reports/site/index.html",
+        help="Single regenerated public HTML findings dashboard",
+    )
     _add_ledger_arguments(p)
 
     p = sub.add_parser("review-alert", help="Resolve a paused monitor alert")
@@ -204,8 +209,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--limit", type=int, default=100000)
     p.add_argument("--threshold", type=float, default=0.75)
 
-    p = sub.add_parser("export-findings", help="Regenerate the public findings Markdown report")
+    p = sub.add_parser("export-findings", help="Regenerate public Markdown and HTML reports")
     p.add_argument("--report", default="reports/findings.md")
+    p.add_argument("--html", default="reports/site/index.html")
 
     return parser
 
@@ -484,6 +490,7 @@ async def _watch(args) -> int:
                 calibration=calibration,
                 reviewer=reviewer,
                 report_path=args.findings_report if reviewer else None,
+                html_report_path=args.findings_html if reviewer else None,
             )
         print(json.dumps(result.as_dict(), indent=2), flush=True)
         if args.once:
@@ -553,7 +560,8 @@ def main() -> int:
         with SQLiteStore(settings.db_path) as store:
             findings = store.monitor_findings()
         write_findings_report(args.report, findings)
-        print(json.dumps({"report": args.report, "findings": len(findings)}))
+        write_findings_html(args.html, findings)
+        print(json.dumps({"report": args.report, "html": args.html, "findings": len(findings)}))
         return 0
     if args.command == "db-health":
         settings = Settings.from_env()

@@ -13,7 +13,7 @@ from agenttrace.campaign import CollectorFactory, run_campaign
 from agenttrace.ledger import RepositoryLedger, update_ledger
 from agenttrace.models import EvidenceBundle
 from agenttrace.pipeline import analyze_observations
-from agenttrace.reviewer import BundleReviewer, write_findings_report
+from agenttrace.reviewer import BundleReviewer, write_findings_html, write_findings_report
 from agenttrace.storage.sqlite import SQLiteStore
 
 
@@ -69,6 +69,7 @@ async def watch_cycle(
     calibration: CalibrationProfile | None = None,
     reviewer: BundleReviewer | None = None,
     report_path: str | Path | None = None,
+    html_report_path: str | Path | None = None,
 ) -> WatchResult:
     pending = store.pending_alert()
     if pending:
@@ -82,6 +83,8 @@ async def watch_cycle(
         )
         if report_path:
             write_findings_report(report_path, store.monitor_findings())
+        if html_report_path:
+            write_findings_html(html_report_path, store.monitor_findings())
 
     campaign = await run_campaign(
         queries,
@@ -155,6 +158,8 @@ async def watch_cycle(
             )
     if report_path:
         write_findings_report(report_path, store.monitor_findings())
+    if html_report_path:
+        write_findings_html(html_report_path, store.monitor_findings())
     return WatchResult(
         state="watching",
         observations=len(campaign.observations),

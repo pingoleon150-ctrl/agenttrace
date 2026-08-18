@@ -1,6 +1,32 @@
+import asyncio
 import json
 
-from agenttrace.reviewer import redact_public_text, reviewer_from_openclaw
+import httpx
+
+from agenttrace.reviewer import (
+    OpenAICompatibleReviewer,
+    redact_public_text,
+    render_findings_html,
+    reviewer_from_openclaw,
+)
+
+
+def test_classifier_fills_omitted_json_fields(monkeypatch):
+    async def fake_post(self, url, json, headers):
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": '{"classification":"automation"}'}}]},
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+    reviewer = OpenAICompatibleReviewer("http://example.test/v1", "private", "model", "test")
+    bundle = type("Bundle", (), {})()
+    monkeypatch.setattr("agenttrace.reviewer.public_bundle_payload", lambda value: {})
+    result = asyncio.run(reviewer.classify(bundle))
+    assert result["classification"] == "automation"
+    assert result["autonomy_level"] == "unknown"
+    assert result["recommended_disposition"] == "manual_review"
 
 
 def test_openclaw_loader_reads_provider_without_copying_secret(tmp_path):
@@ -47,3 +73,26 @@ def test_openclaw_gateway_uses_private_local_endpoint(tmp_path):
     assert reviewer.base_url == "http://127.0.0.1:18789/v1"
     assert reviewer.model_name == "openclaw"
     assert "gateway-private" not in repr(reviewer)
+
+
+def test_html_report_escapes_public_evidence_and_contains_no_secrets():
+    html = render_findings_html(
+        [{
+            "id": 7,
+            "status": "reviewed",
+            "created_at": "2026-08-18T00:00:00Z",
+            "summary": {
+                "score": 0.91,
+                "confidence": "high",
+                "actors": ["<script>alert(1)</script>"],
+                "provenance": ["https://example.test/?x=<unsafe>"],
+            },
+            "classification": {"classification": "AI-assisted collaboration"},
+            "reviewer": "openclaw:gateway",
+            "model": "openclaw",
+            "classification_created_at": "2026-08-18T00:01:00Z",
+        }]
+    )
+    assert "<script>alert(1)</script>" not in html
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
+    assert "Content-Security-Policy" in html

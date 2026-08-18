@@ -225,7 +225,8 @@ agenttrace watch \
   --auto-review \
   --openclaw-config ~/.openclaw/openclaw.json \
   --review-provider gateway \
-  --findings-report reports/findings.md
+  --findings-report reports/findings.md \
+  --findings-html reports/site/index.html
 ```
 
 The API key is read only at runtime. It is never stored in SQLite, the shared
@@ -239,8 +240,23 @@ Regenerate the report from the local review ledger without making an LLM call:
 
 ```bash
 AGENTTRACE_DB=agenttrace-monitor.db agenttrace export-findings \
-  --report reports/findings.md
+  --report reports/findings.md \
+  --html reports/site/index.html
 ```
+
+The monitor regenerates both files atomically after each classified finding. The HTML dashboard
+can be published on a trusted home LAN without exposing the database, logs, or OpenClaw config:
+
+```bash
+AGENTTRACE_SITE_DIRECTORY=reports/site \
+AGENTTRACE_REPORT_HOST=0.0.0.0 \
+AGENTTRACE_REPORT_PORT=8765 \
+scripts/run-report-server-macos.sh
+```
+
+Open `http://<laptop-lan-ip>:8765/` from another device on the same network. The read-only page
+auto-refreshes every five minutes, escapes public evidence, and uses a restrictive Content
+Security Policy. This does not create Internet access or router port forwarding.
 
 On macOS, a separate private LaunchAgent can poll the monitor database and send
 each new alert exactly once through the configured Mail.app account:

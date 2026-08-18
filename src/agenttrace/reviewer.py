@@ -5,6 +5,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from html import escape
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -33,6 +34,21 @@ REQUIRED_KEYS = {
     "evidence_for",
     "evidence_against",
     "recommended_disposition",
+}
+
+CLASSIFICATION_DEFAULTS: dict[str, Any] = {
+    "classification": "inconclusive",
+    "autonomy_level": "unknown",
+    "confidence": "low",
+    "summary": "The model did not provide this field.",
+    "intent": "Not established.",
+    "human_risk": "Not established.",
+    "company_affiliation": "Not established.",
+    "agents_identified": [],
+    "models_identified": [],
+    "evidence_for": [],
+    "evidence_against": ["The classifier omitted one or more requested fields."],
+    "recommended_disposition": "manual_review",
 }
 
 SECRET_PATTERNS = [
@@ -90,9 +106,8 @@ class OpenAICompatibleReviewer:
             response.raise_for_status()
         content = response.json()["choices"][0]["message"]["content"]
         result = _parse_json_object(content)
-        missing = REQUIRED_KEYS - result.keys()
-        if missing:
-            raise ValueError(f"classifier response missing keys: {', '.join(sorted(missing))}")
+        for key in REQUIRED_KEYS - result.keys():
+            result[key] = CLASSIFICATION_DEFAULTS[key]
         return result
 
 
@@ -269,6 +284,77 @@ def write_findings_report(path: str | Path, findings: list[dict[str, Any]]) -> N
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = destination.with_suffix(destination.suffix + ".tmp")
     temporary.write_text(render_findings_report(findings))
+    temporary.replace(destination)
+
+
+def render_findings_html(findings: list[dict[str, Any]]) -> str:
+    generated = datetime.now(UTC).isoformat()
+    cards = []
+    for finding in findings:
+        summary = finding["summary"]
+        classification = finding["classification"] or {}
+        actors = "".join(
+            f"<span class=\"pill\">{escape(str(actor))}</span>"
+            for actor in summary.get("actors", [])
+        )
+        provenance = "".join(
+            f'<li><a href="{escape(str(url), quote=True)}" target="_blank" '
+            f'rel="noopener noreferrer">{escape(str(url))}</a></li>'
+            for url in summary.get("provenance", [])[:20]
+        )
+        def value(
+            key: str,
+            fallback: str = "Not established.",
+            values: dict[str, Any] = classification,
+        ) -> str:
+            return escape(_text(values.get(key, fallback)))
+
+        details = (
+            f"<dl><dt>Classification</dt><dd>{value('classification', 'Manual review')}</dd>"
+            f"<dt>Autonomy</dt><dd>{value('autonomy_level')}</dd>"
+            f"<dt>LLM confidence</dt><dd>{value('confidence')}</dd>"
+            f"<dt>Intent</dt><dd>{value('intent')}</dd>"
+            f"<dt>Potential human risk</dt><dd>{value('human_risk')}</dd>"
+            f"<dt>Company affiliation</dt><dd>{value('company_affiliation')}</dd></dl>"
+            if classification
+            else "<p class=\"muted\">Historical finding reviewed before LLM classification.</p>"
+        )
+        cards.append(
+            f'<article id="finding-{finding["id"]}"><header><div><span class="eyebrow">'
+            f'Finding {finding["id"]}</span><h2>{value("classification", "Manual review")}</h2>'
+            f'</div><span class="status">{escape(str(finding["status"]))}</span></header>'
+            f'<div class="metrics"><b>Score {escape(str(summary.get("score", "")))}</b>'
+            f'<span>{escape(str(summary.get("confidence", "")))} confidence</span>'
+            f'<span>{escape(str(finding["created_at"]))}</span></div>'
+            f'<div class="actors">{actors}</div>{details}'
+            f'<p>{value("summary", "Public evidence awaiting automated classification.")}</p>'
+            f'<details><summary>Public provenance ({len(summary.get("provenance", []))})</summary>'
+            f'<ul>{provenance}</ul></details></article>'
+        )
+    return f"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
+<meta http-equiv="refresh" content="300"><title>AgentTrace Public Findings</title>
+<style>
+:root{{--bg:#07111f;--panel:#101d2e;--line:#26364b;--text:#edf4ff;--muted:#9fb0c5;--accent:#5eead4}}
+*{{box-sizing:border-box}}body{{margin:0;background:linear-gradient(145deg,#07111f,#0d1728);color:var(--text);font:15px/1.55 system-ui,sans-serif}}
+main{{max-width:1100px;margin:auto;padding:48px 20px 80px}}h1{{font-size:clamp(2rem,6vw,4.5rem);margin:.1em 0}}h2{{margin:.2em 0;font-size:1.35rem}}
+.lead,.muted{{color:var(--muted)}}.summary{{display:flex;gap:12px;flex-wrap:wrap;margin:28px 0}}.summary span,.pill,.status{{border:1px solid var(--line);border-radius:999px;padding:5px 10px}}
+.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:18px}}article{{background:rgba(16,29,46,.92);border:1px solid var(--line);border-radius:18px;padding:22px;box-shadow:0 20px 50px #0004}}
+article header{{display:flex;justify-content:space-between;gap:16px}}.eyebrow{{color:var(--accent);font-size:.75rem;text-transform:uppercase;letter-spacing:.12em}}.status{{height:max-content;color:var(--accent)}}
+.metrics,.actors{{display:flex;gap:10px;flex-wrap:wrap;margin:16px 0;color:var(--muted)}}dl{{display:grid;grid-template-columns:minmax(115px,.5fr) 1fr;gap:8px 14px}}dt{{color:var(--muted)}}dd{{margin:0;overflow-wrap:anywhere}}a{{color:#7dd3fc}}ul{{padding-left:20px;overflow-wrap:anywhere}}footer{{margin-top:30px;color:var(--muted)}}
+</style></head><body><main><span class="eyebrow">Continuous public evidence review</span><h1>AgentTrace Findings</h1>
+<p class="lead">Research candidates, not proof of autonomous agents or malicious intent.</p>
+<div class="summary"><span>{len(findings)} total findings</span><span>Updated {escape(generated)}</span><span>Auto-refresh: 5 minutes</span></div>
+<section class="grid">{''.join(cards) or '<article><h2>No findings yet</h2><p class="muted">The monitor is watching for high-priority evidence.</p></article>'}</section>
+<footer>Only public evidence summaries are served. Credentials and the local database are never included.</footer></main></body></html>"""
+
+
+def write_findings_html(path: str | Path, findings: list[dict[str, Any]]) -> None:
+    destination = Path(path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_suffix(destination.suffix + ".tmp")
+    temporary.write_text(render_findings_html(findings))
     temporary.replace(destination)
 
 
