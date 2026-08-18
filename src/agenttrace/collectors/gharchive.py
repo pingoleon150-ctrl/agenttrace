@@ -28,6 +28,7 @@ CANDIDATE_RE = re.compile(
 )
 EVENT_TYPE_RE = re.compile(rb'"type"\s*:\s*"(?P<value>[A-Za-z]+Event)"')
 EVENT_ID_RE = re.compile(rb'"id"\s*:\s*"(?P<value>[^"]+)"')
+REPOSITORY_RE = re.compile(rb'"repo"\s*:\s*\{[^{}]*"name"\s*:\s*"(?P<value>[^"]+)"')
 INFLATE_CHUNK_BYTES = 64 * 1024
 MAX_ARCHIVE_CODE_BLOCKS = 4
 MAX_ARCHIVE_CODE_CHARS = 4_096
@@ -53,6 +54,7 @@ class GHArchiveHourCollector(Collector):
         max_text_chars: int = 20_000,
         max_event_bytes: int = 2 * 1024 * 1024,
         transport: httpx.AsyncBaseTransport | None = None,
+        repositories: set[str] | None = None,
     ):
         self.hour = self._normalize_hour(hour)
         self.limit = limit
@@ -66,6 +68,7 @@ class GHArchiveHourCollector(Collector):
         self.max_text_chars = max(100, max_text_chars)
         self.max_event_bytes = max(1024, max_event_bytes)
         self.transport = transport
+        self.repositories = {value.casefold() for value in repositories or set()}
         self.stats = {
             "events_scanned": 0,
             "relevant_events": 0,
@@ -78,6 +81,7 @@ class GHArchiveHourCollector(Collector):
             "observations": 0,
             "compressed_bytes": 0,
             "malformed_events": 0,
+            "repository_filtered_events": 0,
         }
 
     async def collect(self) -> AsyncIterator[Observation]:
@@ -124,6 +128,16 @@ class GHArchiveHourCollector(Collector):
         event_type = event_type_match.group("value").decode() if event_type_match else None
         if event_type and event_type not in self.event_types:
             return None
+        if self.repositories:
+            repository_match = REPOSITORY_RE.search(raw_line)
+            repository = (
+                repository_match.group("value").decode(errors="replace").casefold()
+                if repository_match
+                else ""
+            )
+            if repository not in self.repositories:
+                self.stats["repository_filtered_events"] += 1
+                return None
         self.stats["relevant_events"] += 1
         event_id_match = EVENT_ID_RE.search(raw_line)
         event_id = event_id_match.group("value").decode() if event_id_match else ""

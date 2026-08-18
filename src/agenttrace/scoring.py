@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from agenttrace.calibration import CalibrationProfile
 from agenttrace.models import ClusterScore, Observation, Signal
 
 RELIABILITY = {
@@ -9,8 +10,10 @@ RELIABILITY = {
     "graph": 0.70,
     "semantic": 1.00,
     "identity": 1.00,
+    "behavior": 0.90,
+    "commit": 0.85,
 }
-ANCHOR_FAMILIES = {"artifact", "semantic", "identity"}
+ANCHOR_FAMILIES = {"artifact", "semantic", "identity", "behavior", "commit"}
 FAMILY_FLOOR = 0.35
 STRONG_FAMILY = 0.68
 
@@ -19,6 +22,7 @@ def score_cluster(
     signals: list[Signal],
     observations: list[Observation],
     threshold: float = 0.60,
+    calibration: CalibrationProfile | None = None,
 ) -> ClusterScore:
     selected: dict[str, Signal] = {}
     for signal in signals:
@@ -46,6 +50,19 @@ def score_cluster(
     collapsed_count = len(fired) - len(components)
     positive += min(0.06, 0.03 * collapsed_count)
     verified_exchange = _has_verified_exchange(selected, fired)
+    log_lr = None
+    posterior = None
+    calibration_reasons: list[str] = []
+    calibrated_exceptional = False
+    if calibration:
+        log_lr, posterior, calibration_reasons = calibration.evidence(list(selected.values()))
+        calibrated_exceptional = any(
+            calibration.likelihood_ratios.get(signal.name, 0.0) >= calibration.exceptional_lr
+            for signal in selected.values()
+        )
+    exceptional = _has_exceptional_evidence(selected, effective) or calibrated_exceptional
+    if exceptional:
+        positive = max(positive, 0.85)
     if verified_exchange:
         positive = max(positive, 0.80)
     benign = by_family.get("benign", 0.0)
@@ -66,10 +83,18 @@ def score_cluster(
     ]
     actors = {o.actor.strip().casefold() for o in observations}
     provenance_complete = bool(observations) and all(o.provenance.url for o in observations)
-    eligible = len(actors) >= 2 and provenance_complete and benign < 0.80
+    longitudinal_single_actor = any(
+        signal.metadata.get("longitudinal") and signal.metadata.get("cross_resource")
+        for signal in selected.values()
+    )
+    eligible = (
+        (len(actors) >= 2 or longitudinal_single_actor)
+        and provenance_complete
+        and benign < 0.80
+    )
     reviewable = (
         total >= threshold
-        and (len(strong_anchor_components) >= 2 or verified_exchange)
+        and (len(strong_anchor_components) >= 2 or verified_exchange or exceptional)
         and eligible
     )
     medium = (
@@ -82,6 +107,8 @@ def score_cluster(
         )
     )
     confidence = "high" if reviewable else "medium" if medium else "low"
+    confirmed = reviewable and len(strong_anchor_components) >= 3
+    decision = "confirmed" if confirmed else "review" if reviewable else "watch" if medium else "dismiss"
 
     reasons = [
         f"{family}={value:.2f}" for family, value in sorted(by_family.items()) if value >= FAMILY_FLOOR
@@ -93,12 +120,17 @@ def score_cluster(
         reasons.append(f"correlated_families_collapsed={collapsed_count}")
     if verified_exchange:
         reasons.append("route=verified_relational_exchange")
+    elif exceptional:
+        reasons.append("route=exceptional_single_signal")
     elif len(strong_anchor_components) >= 2:
         reasons.append("route=two_independent_strong_anchors")
     elif medium:
         reasons.append("route=analyst_watchlist")
     if not provenance_complete:
         reasons.append("provenance_incomplete")
+    reasons.extend(calibration_reasons)
+    if calibrated_exceptional:
+        reasons.append("calibrated_exceptional_lr")
 
     return ClusterScore(
         score=round(total, 4),
@@ -108,6 +140,9 @@ def score_cluster(
         actor_count=len(actors),
         observation_count=len(observations),
         reasons=reasons,
+        decision=decision,
+        evidence_log_likelihood_ratio=round(log_lr, 4) if log_lr is not None else None,
+        posterior_probability=round(posterior, 8) if posterior is not None else None,
     )
 
 
@@ -146,3 +181,10 @@ def _has_verified_exchange(selected: dict[str, Signal], fired: set[str]) -> bool
     native = int(semantic.metadata.get("verified_native_trajectories") or 0)
     cross_context = int(semantic.metadata.get("verified_cross_context_trajectories") or 0)
     return native > 0 or (cross_context > 0 and "artifact" in fired)
+
+
+def _has_exceptional_evidence(selected: dict[str, Signal], effective: dict[str, float]) -> bool:
+    return any(
+        signal.metadata.get("exceptional_evidence") and effective.get(family, 0.0) >= 0.82
+        for family, signal in selected.items()
+    )

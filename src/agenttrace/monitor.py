@@ -6,6 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from agenttrace import __version__
+from agenttrace.calibration import CalibrationProfile
 from agenttrace.campaign import CollectorFactory, run_campaign
 from agenttrace.ledger import RepositoryLedger, update_ledger
 from agenttrace.pipeline import analyze_observations
@@ -59,6 +60,7 @@ async def watch_cycle(
     page_steps: dict[str, int] | None = None,
     history_limit: int = 20_000,
     window_minutes: int = 1_440,
+    calibration: CalibrationProfile | None = None,
 ) -> WatchResult:
     pending = store.pending_alert()
     if pending:
@@ -75,10 +77,14 @@ async def watch_cycle(
         rotate_pages=True,
         page_limits=page_limits,
         page_steps=page_steps,
+        calibration=calibration,
     )
     history = store.list_observations(max(1, history_limit))
     bundles = analyze_observations(
-        history, threshold=threshold, window_minutes=max(1, window_minutes)
+        history,
+        threshold=threshold,
+        window_minutes=max(1, window_minutes),
+        calibration=calibration,
     )
     if ledger:
         update_ledger(

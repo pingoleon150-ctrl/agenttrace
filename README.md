@@ -15,6 +15,11 @@ We focus on signals that are harder to explain with generic AI prose alone:
 - rare artifact propagation between identities;
 - task delegation, acknowledgement, heartbeat, retry, and checkpoint semantics;
 - very fast or highly periodic handoffs;
+- opaque high-entropy exchanges and shared credential-like markers with
+  event-context identifier suppression;
+- continuous multi-actor coverage and cross-repository objective persistence;
+- commit-message uniformity, exact machine-like push timing, and generated
+  author-domain reuse (email local parts are not retained);
 - graph motifs such as leader/worker fan-out and result aggregation;
 - persistence of state across changing identities or execution contexts;
 - cross-platform continuation through the same typed coordination marker or
@@ -111,6 +116,16 @@ agenttrace gharchive-hour --hour 2026-08-16T19 \
   --max-download-mb 512
 ```
 
+For directed replay, repeat `--repository owner/name`. Nonmatching events are
+discarded from raw bytes before JSON decoding, making it practical to revisit
+only repositories promoted by an earlier cheap discovery pass.
+
+Install the archive extra and add `--parquet path/to/hour.parquet` to retain
+the bounded, prefiltered canonical events in a Zstandard-compressed columnar
+file. SQLite remains the small operational store for checkpoints, deduplication,
+alerts, and evidence bundles; it is no longer required to serve as the raw
+historical event warehouse.
+
 Both zero-padded and unpadded input hours are accepted. AgentTrace normalizes
 hours `0` through `9` to GH Archive's unpadded object names.
 
@@ -133,6 +148,21 @@ Analyze an existing JSONL corpus:
 ```bash
 agenttrace analyze-jsonl examples/sample_observations.jsonl
 ```
+
+Evaluate the bundled labeled regression corpus:
+
+```bash
+agenttrace evaluate-corpus \
+  corpus/synthetic-v2/observations.jsonl \
+  corpus/synthetic-v2/labels.json
+```
+
+The report uses labeled scenarios, not individual correlated events, and emits
+a confusion matrix plus smoothed signal-presence likelihood ratios. These are
+in-sample diagnostics. They must not be interpreted as field probabilities.
+An optional external calibration profile can be applied to JSONL analysis with
+`--calibration profile.json`; its posterior is valid only when its corpus and
+deployment prior are valid for the target population.
 
 Run every seed query across GitHub threads, authenticated GitHub code search,
 and grep.app, then deduplicate and rank the combined evidence:
@@ -234,19 +264,26 @@ AgentTrace assigns `high`, `medium`, or `low` to each cluster. The numeric
 `score` is an **operational priority score**, not a calibrated probability that
 an account is an AI agent.
 
-A high-tier alert requires all basic eligibility checks: at least two distinct
-normalized actor labels, complete public provenance, a benign-automation score below
-the suppression ceiling, and a priority score at or above the configured
-threshold. It must then have either two independent strong anchor components or
-a verified full relational exchange. The verified route is either a native
+A high-tier alert requires complete public provenance, a benign-automation
+score below the suppression ceiling, and a priority score at or above the
+configured threshold. It normally requires at least two distinct actors, but a
+longitudinal cross-repository persistence signal may make a single-actor case
+reviewable. Routing then requires two independent strong anchor components, a
+verified full relational exchange, or one narrowly defined exceptional signal
+such as a repeated high-entropy cross-actor exchange or a shared credential
+across identities and repositories. The verified route is either a native
 reply trajectory with distinct delegation, acknowledgement, and result events,
 or a typed-reference trajectory of the same shape spanning at least two
 conversation, resource, or event contexts. A checkpoint-to-resume path is the
 state-transfer equivalent.
 
+Three independent strong anchor components produce `decision=confirmed`;
+review routes with fewer components produce `decision=review`. This is an
+operational evidence state, not attribution proof.
+
 The anchor families are typed artifact reuse, relational semantic exchange,
-and shared identity markers. Protocol, temporal, and graph signals provide
-support but are not anchors. When a signal declares that it depends on another
+shared identity markers, longitudinal behavior, and commit metadata. Protocol,
+temporal, and graph signals provide support but are not anchors. When a signal declares that it depends on another
 family's evidence, those families are collapsed into one evidence component.
 The component contributes its strongest value plus only a small bounded
 correlated-evidence bonus; it cannot masquerade as two independent anchors.

@@ -10,6 +10,7 @@ import httpx
 import yaml
 
 from agenttrace import __version__
+from agenttrace.calibration import CalibrationProfile
 from agenttrace.collectors.base import Collector
 from agenttrace.collectors.github import GitHubCodeSearchCollector, GitHubThreadSearchCollector
 from agenttrace.collectors.grepapp import GrepAppCollector
@@ -121,6 +122,7 @@ async def run_campaign(
     rotate_pages: bool = False,
     page_limits: dict[str, int] | None = None,
     page_steps: dict[str, int] | None = None,
+    calibration: CalibrationProfile | None = None,
 ) -> CampaignResult:
     result = CampaignResult(queries=queries, sources=list(factories))
     seen: set[tuple[str, str | None]] = set()
@@ -168,7 +170,10 @@ async def run_campaign(
             result.observations.append(normalized)
 
     result.bundles = analyze_observations(
-        result.observations, threshold=threshold, window_minutes=window_minutes
+        result.observations,
+        threshold=threshold,
+        window_minutes=window_minutes,
+        calibration=calibration,
     )
     for bundle in result.bundles:
         store.save_bundle(bundle)

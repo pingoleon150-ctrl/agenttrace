@@ -15,7 +15,9 @@ def build_coordination_graph(observations: list[Observation]) -> nx.DiGraph:
         actor_node = f"actor:{obs.actor_key or obs.actor}"
         event_node = f"event:{obs.event_key}"
         graph.add_node(actor_node, kind="actor", label=obs.actor)
-        graph.add_node(event_node, kind="event", event_type=obs.event_type)
+        graph.add_node(
+            event_node, kind="event", event_type=obs.event_type, event_time=obs.event_time.isoformat()
+        )
         graph.add_edge(actor_node, event_node, relation="authored", weight=1)
 
         if obs.repository:
@@ -64,7 +66,7 @@ def detect_graph_motifs(graph: nx.DiGraph) -> list[Signal]:
     score = min(1.0, 0.45 * reciprocity + 0.35 * fanout + 0.20 * scc_score)
     if score < 0.25:
         return []
-    return [
+    signals = [
         Signal(
             family="graph",
             name="coordination_topology",
@@ -78,6 +80,32 @@ def detect_graph_motifs(graph: nx.DiGraph) -> list[Signal]:
             ],
         )
     ]
+    leaders = []
+    for actor in actors:
+        workers = [
+            target
+            for target in actor_graph.successors(actor)
+            if actor_graph[actor][target].get("weight", 1) >= 2
+        ]
+        if len(workers) >= 3:
+            leaders.append((actor, workers))
+    if leaders:
+        leader, workers = max(leaders, key=lambda item: len(item[1]))
+        response_count = sum(actor_graph[leader][worker].get("weight", 1) for worker in workers)
+        signals.append(
+            Signal(
+                family="graph",
+                name="repeated_leader_worker_aggregation",
+                score=min(0.94, 0.68 + 0.04 * len(workers) + 0.015 * response_count),
+                evidence=[
+                    f"worker_count={len(workers)}",
+                    f"repeated_response_count={response_count}",
+                    "relationship_source=native_reply_edges",
+                ],
+                evidence_groups=["graph:leader_worker_replies"],
+            )
+        )
+    return signals
 
 
 def _increment_edge(graph: nx.DiGraph, u: str, v: str, relation: str) -> None:

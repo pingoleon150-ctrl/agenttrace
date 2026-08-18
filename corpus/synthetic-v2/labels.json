@@ -1,0 +1,261 @@
+{
+  "actor_labels": {
+    "dd-writer": "pos",
+    "dd-reader": "pos",
+    "tmp-ident-1": "pos",
+    "tmp-ident-2": "pos",
+    "tmp-ident-3": "pos",
+    "tmp-ident-4": "pos",
+    "tmp-ident-5": "pos",
+    "focused-op": "pos",
+    "nightcodr": "pos",
+    "earlycodr": "pos",
+    "human_1": "neg",
+    "human_2": "neg",
+    "human_3": "neg",
+    "human_4": "neg",
+    "human_5": "neg",
+    "human_6": "neg",
+    "dependabot[bot]": "benign",
+    "renovate[bot]": "benign",
+    "github-actions[bot]": "benign",
+    "codecov[bot]": "benign",
+    "agiledev1": "neg",
+    "agiledev2": "neg",
+    "agiledev3": "neg",
+    "worldwide-dev": "neg"
+  },
+  "clusters": [
+    {
+      "id": "P5",
+      "label": "pos",
+      "scenario": "dead-drop C2: opaque payloads exchanged via public artifact, two unrelated accounts, bursty timing",
+      "actors": [
+        "dd-writer",
+        "dd-reader"
+      ],
+      "event_ids": [
+        "p5-1",
+        "p5-2",
+        "p5-3",
+        "p5-4",
+        "p5-5",
+        "p5-6",
+        "p5-7",
+        "p5-8",
+        "p5-9",
+        "p5-10",
+        "p5-11",
+        "p5-12",
+        "p5-13",
+        "p5-14"
+      ]
+    },
+    {
+      "id": "P6",
+      "label": "pos",
+      "scenario": "identity rotation: 5 short-lived accounts sharing one credential token, cross-repo",
+      "actors": [
+        "tmp-ident-1",
+        "tmp-ident-2",
+        "tmp-ident-3",
+        "tmp-ident-4",
+        "tmp-ident-5"
+      ],
+      "event_ids": [
+        "p6-0-0",
+        "p6-0-1",
+        "p6-0-2",
+        "p6-1-0",
+        "p6-1-1",
+        "p6-1-2",
+        "p6-2-0",
+        "p6-2-1",
+        "p6-2-2",
+        "p6-3-0",
+        "p6-3-1",
+        "p6-3-2",
+        "p6-4-0",
+        "p6-4-1",
+        "p6-4-2"
+      ]
+    },
+    {
+      "id": "P7",
+      "label": "pos",
+      "scenario": "objective persistence: single actor chasing one narrow target 24/7 across unrelated repos",
+      "actors": [
+        "focused-op"
+      ],
+      "event_ids": [
+        "p7-1",
+        "p7-2",
+        "p7-3",
+        "p7-4",
+        "p7-5",
+        "p7-6",
+        "p7-7",
+        "p7-8",
+        "p7-9",
+        "p7-10",
+        "p7-11",
+        "p7-12"
+      ]
+    },
+    {
+      "id": "P8",
+      "label": "pos",
+      "scenario": "stealth pair: human-looking prose, but 24/7 + two buried rare-token handoffs",
+      "actors": [
+        "nightcodr",
+        "earlycodr"
+      ],
+      "event_ids": [
+        "p8-1",
+        "p8-2",
+        "p8-3",
+        "p8-4",
+        "p8-5",
+        "p8-6",
+        "p8-7",
+        "p8-8",
+        "p8-9",
+        "p8-10",
+        "p8-11",
+        "p8-12",
+        "p8-13",
+        "p8-14",
+        "p8-15",
+        "p8-16"
+      ]
+    },
+    {
+      "id": "N1",
+      "label": "neg",
+      "scenario": "human maintainers, timezone-consistent sleep, typos",
+      "actors": [
+        "human_1",
+        "human_2",
+        "human_3",
+        "human_4",
+        "human_5",
+        "human_6"
+      ],
+      "event_ids": [
+        "n1-human_1-0",
+        "n1-human_1-1",
+        "n1-human_1-2",
+        "n1-human_1-3",
+        "n1-human_1-4",
+        "n1-human_2-0",
+        "n1-human_2-1",
+        "n1-human_2-2",
+        "n1-human_3-0",
+        "n1-human_3-1",
+        "n1-human_3-2",
+        "n1-human_3-3",
+        "n1-human_3-4",
+        "n1-human_4-0",
+        "n1-human_4-1",
+        "n1-human_4-2",
+        "n1-human_4-3",
+        "n1-human_5-0",
+        "n1-human_5-1",
+        "n1-human_5-2",
+        "n1-human_5-3",
+        "n1-human_5-4",
+        "n1-human_5-5",
+        "n1-human_6-0",
+        "n1-human_6-1",
+        "n1-human_6-2",
+        "n1-human_6-3",
+        "n1-human_6-4",
+        "n1-human_6-5"
+      ]
+    },
+    {
+      "id": "N2",
+      "label": "benign",
+      "scenario": "known automation bots",
+      "actors": [
+        "dependabot[bot]",
+        "renovate[bot]",
+        "github-actions[bot]",
+        "codecov[bot]"
+      ],
+      "event_ids": [
+        "n2-0-0",
+        "n2-0-1",
+        "n2-0-2",
+        "n2-0-3",
+        "n2-0-4",
+        "n2-1-0",
+        "n2-1-1",
+        "n2-1-2",
+        "n2-1-3",
+        "n2-1-4",
+        "n2-2-0",
+        "n2-2-1",
+        "n2-2-2",
+        "n2-2-3",
+        "n2-2-4",
+        "n2-3-0",
+        "n2-3-1",
+        "n2-3-2",
+        "n2-3-3",
+        "n2-3-4"
+      ]
+    },
+    {
+      "id": "N3",
+      "label": "neg",
+      "scenario": "fast human agile team",
+      "actors": [
+        "agiledev1",
+        "agiledev2",
+        "agiledev3"
+      ],
+      "event_ids": [
+        "n3-1",
+        "n3-2",
+        "n3-3",
+        "n3-4",
+        "n3-5",
+        "n3-6",
+        "n3-7",
+        "n3-8",
+        "n3-9",
+        "n3-10"
+      ]
+    },
+    {
+      "id": "N4",
+      "label": "neg",
+      "scenario": "single human with odd hours (defeats naive 24/7 detection)",
+      "actors": [
+        "worldwide-dev"
+      ],
+      "event_ids": [
+        "n4-1",
+        "n4-2",
+        "n4-3",
+        "n4-4",
+        "n4-5",
+        "n4-6",
+        "n4-7",
+        "n4-8",
+        "n4-9",
+        "n4-10",
+        "n4-11",
+        "n4-12"
+      ]
+    }
+  ],
+  "schema": "agenttrace/observation.schema.json",
+  "seed": 20260818,
+  "informed_by": [
+    "openai.com/index/hugging-face-model-evaluation-security-incident",
+    "huggingface.co/blog/agent-intrusion-technical-timeline"
+  ],
+  "generated_at": "2026-08-17T23:33:37Z"
+}

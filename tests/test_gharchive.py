@@ -61,6 +61,18 @@ def test_stream_filter_keeps_candidates_and_drops_unsupported_events():
     assert collector.stats["candidate_events"] == 1
 
 
+def test_repository_allowlist_filters_before_decoding():
+    excluded = event("1", "delegate task_id=alpha-9217")
+    included = event("2", "delegate task_id=beta-9217")
+    included["repo"]["name"] = "target/repo"
+    collector = collector_for(
+        [excluded, included], sample_rate=0.0, repositories={"TARGET/REPO"}
+    )
+    observations = asyncio.run(_collect(collector))
+    assert [observation.source_event_id for observation in observations] == ["2"]
+    assert collector.stats["repository_filtered_events"] == 1
+
+
 def test_sampling_is_deterministic():
     first = GHArchiveHourCollector("2026-08-17-12", sample_rate=0.25)
     second = GHArchiveHourCollector("2026-08-17-12", sample_rate=0.25)

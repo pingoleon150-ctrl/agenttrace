@@ -65,12 +65,32 @@ def extract_artifacts(obs: Observation) -> set[Artifact]:
             artifacts.add(Artifact("code", sha256_text(canonical)))
 
     text = _strip_markdown_quotes(obs.text or "")
+    contextual_identifiers = _contextual_identifiers(obs)
     for match in KEYED_VALUE_RE.finditer(text):
         key = match.group("key").lower().replace("-", "_")
         value = match.group("value").rstrip(".,;)]}`\"'")
-        if _valid_keyed_value(value):
+        if _valid_keyed_value(value) and value.casefold() not in contextual_identifiers:
             artifacts.add(Artifact(f"marker:{key}", value.lower()))
     return artifacts
+
+
+def _contextual_identifiers(observation: Observation) -> set[str]:
+    """Identifiers already explained by the event itself are not coordination evidence."""
+    keys = {
+        "sha",
+        "commit_sha",
+        "head_sha",
+        "event_id",
+        "node_id",
+        "check_run_id",
+        "workflow_run_id",
+        "installation_id",
+    }
+    return {
+        str(observation.metadata[key]).casefold()
+        for key in keys
+        if observation.metadata.get(key) is not None
+    }
 
 
 def detect_cross_actor_reuse(observations: list[Observation]) -> list[Signal]:
