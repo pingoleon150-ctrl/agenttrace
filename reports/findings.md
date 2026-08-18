@@ -1,6 +1,6 @@
 # AgentTrace Public Findings
 
-_Generated from the local review ledger at 2026-08-18T16:32:05.145985+00:00._
+_Generated from the local review ledger at 2026-08-18T17:36:29.896312+00:00._
 
 > These findings prioritize public evidence for review. They do not prove that an account
 > is autonomous, identify the human behind an account, or establish malicious intent.
@@ -9,16 +9,17 @@ _Generated from the local review ledger at 2026-08-18T16:32:05.145985+00:00._
 
 | ID | Status | Score | Confidence | Classification | Actors |
 |---:|---|---:|---|---|---|
-| 1 | false-positive | 0.85 | high | manual review | `ElhamDevelopmentStudio`, `IntensiveCoLearning`, `TytaniumDev`, `diegojromerolopez`, `hashicorp`, `paullizer`, `tianmingyun` |
-| 2 | reviewed | 0.85 | high | manual review | `Charlie-Zhan`, `hangyizhao949` |
-| 3 | reviewed | 0.85 | high | manual review | `bassilkhilo-ag2`, `github-actions[bot]`, `john-the-dev`, `liususan091219`, `qingyun-wu`, `sonichi` |
-| 4 | reviewed | 0.85 | high | human_collaboration | `OVI3D0`, `ajleong623`, `coderabbitai[bot]`, `github-actions[bot]` |
+| 1 | false-positive | 0.874 | high | manual review | `ElhamDevelopmentStudio`, `IntensiveCoLearning`, `TytaniumDev`, `diegojromerolopez`, `hashicorp`, `paullizer`, `tianmingyun` |
+| 2 | reviewed | 0.8496 | high | manual review | `Charlie-Zhan`, `hangyizhao949` |
+| 3 | reviewed | 0.846 | high | manual review | `bassilkhilo-ag2`, `github-actions[bot]`, `john-the-dev`, `liususan091219`, `qingyun-wu`, `sonichi` |
+| 4 | reviewed | 0.828 | high | human_collaboration | `OVI3D0`, `ajleong623`, `coderabbitai[bot]`, `github-actions[bot]` |
+| 5 | reviewed | 0.828 | high | benign | `chardan`, `github-actions[bot]`, `mattbenjamin`, `mosayyebzadeh`, `pritha-srivastava`, `samarahu` |
 
 ## Finding 1
 
 - **Status:** `false-positive`
 - **Detected:** 2026-08-18T00:55:54.710120+00:00
-- **Score:** 0.85 (high)
+- **Score:** 0.874 (high)
 - **Actors:** `ElhamDevelopmentStudio`, `IntensiveCoLearning`, `TytaniumDev`, `diegojromerolopez`, `hashicorp`, `paullizer`, `tianmingyun`
 - **Cluster:** `trajectory:opaque:65:3ce2920a699c`
 
@@ -37,7 +38,7 @@ This historical finding was handled before automated LLM classification was enab
 
 - **Status:** `reviewed`
 - **Detected:** 2026-08-18T03:31:19.014153+00:00
-- **Score:** 0.85 (high)
+- **Score:** 0.8496 (high)
 - **Actors:** `Charlie-Zhan`, `hangyizhao949`
 - **Cluster:** `trajectory:resource:d7cee4e8d5ab2ff2`
 
@@ -69,7 +70,7 @@ This historical finding was handled before automated LLM classification was enab
 
 - **Status:** `reviewed`
 - **Detected:** 2026-08-18T06:58:04.526533+00:00
-- **Score:** 0.85 (high)
+- **Score:** 0.846 (high)
 - **Actors:** `bassilkhilo-ag2`, `github-actions[bot]`, `john-the-dev`, `liususan091219`, `qingyun-wu`, `sonichi`
 - **Cluster:** `trajectory:resource:8cf5958b8de78191`
 
@@ -101,7 +102,7 @@ This historical finding was handled before automated LLM classification was enab
 
 - **Status:** `reviewed`
 - **Detected:** 2026-08-18T16:29:29.072443+00:00
-- **Score:** 0.85 (high)
+- **Score:** 0.828 (high)
 - **Actors:** `OVI3D0`, `ajleong623`, `coderabbitai[bot]`, `github-actions[bot]`
 - **Cluster:** `trajectory:resource:abdbe0e2ae1975ad`
 - **Classification:** human_collaboration
@@ -158,6 +159,64 @@ _Classifier: `openclaw:gateway` / `openclaw` at 2026-08-18T16:31:51.889758+00:00
 - https://github.com/opensearch-project/opensearch-benchmark/pull/988#discussion_r3261271201
 - https://github.com/opensearch-project/opensearch-benchmark/pull/988#discussion_r3350298693
 - https://github.com/opensearch-project/opensearch-benchmark/pull/988#discussion_r3382882095
+
+## Finding 5
+
+- **Status:** `reviewed`
+- **Detected:** 2026-08-18T16:49:08.508306+00:00
+- **Score:** 0.828 (high)
+- **Actors:** `chardan`, `github-actions[bot]`, `mattbenjamin`, `mosayyebzadeh`, `pritha-srivastava`, `samarahu`
+- **Cluster:** `trajectory:resource:320a255c6d07a4db`
+- **Classification:** benign
+- **Autonomy:** ordinary_automation_plus_human_collaboration
+- **LLM confidence:** high
+- **Disposition:** close_as_benign
+
+**Summary:** Ordinary human collaboration on a Ceph pull request (detailed multi-reviewer code review across time zones) combined with standard github-actions CI automation emitting repeated rebase-needed notices. The high behavior score stems from bot activity inflating persistence and coverage metrics; human comments show natural irregularity, hedging, and expert domain reasoning. No evidence of AI-agent or autonomous-agent involvement, no coordination topology, no company affiliation or model identity claims supportable from this evidence.
+
+**Intent:** Routine open-source code review and CI maintenance on ceph/ceph PR #67012; no coordination intent beyond normal collaborative development
+
+**Potential human risk:** low
+
+**Company affiliation:** Not established.
+
+**Agents identified:** []
+
+**Models identified:** []
+
+**Evidence supporting the classification:**
+- Sustained activity on a single PR thread over ~4900 hours, including many identical automated bot comments
+- Continuous coverage across multiple UTC 4-hour bins by multiple actors
+
+**Counterevidence and uncertainty:**
+- Round-the-clock persistence signal (behavior=0.885) is driven almost entirely by github-actions[bot] rebase notices — a single automated actor, not multiple agents (dominant_text_fraction=0.90, identical boilerplate)
+- Review comments from samarahu, chardan, mattbenjamin, pritha-srivastava show human cadence: irregular timestamps, hedging language ('I can't decide', 'I may be misunderstanding something'), style nitpicks, and domain reasoning typical of senior Ceph developers
+- Graph signal is weak (coordination_topology=0.26, reciprocity=0.0, largest SCC=1) — no dense reciprocal coordination topology
+- Multi-actor continuous shift coverage (score=0.92) spans only 2 qualifying actors over ~36 hours around a normal workday spread across time zones (UTC 21:00–09:00), consistent with a globally distributed open-source maintainer team, not shift-scheduled agents
+
+_Classifier: `openclaw:gateway` / `openclaw` at 2026-08-18T16:49:10.770286+00:00._
+
+**Public provenance:**
+- https://github.com/ceph/ceph/pull/67012
+- https://github.com/ceph/ceph/pull/67012#discussion_r2714639755
+- https://github.com/ceph/ceph/pull/67012#discussion_r2714644094
+- https://github.com/ceph/ceph/pull/67012#discussion_r2714960252
+- https://github.com/ceph/ceph/pull/67012#discussion_r2714968120
+- https://github.com/ceph/ceph/pull/67012#discussion_r2714977347
+- https://github.com/ceph/ceph/pull/67012#discussion_r2716041106
+- https://github.com/ceph/ceph/pull/67012#discussion_r2716053622
+- https://github.com/ceph/ceph/pull/67012#discussion_r2716061138
+- https://github.com/ceph/ceph/pull/67012#discussion_r2716065085
+- https://github.com/ceph/ceph/pull/67012#discussion_r2717743926
+- https://github.com/ceph/ceph/pull/67012#discussion_r2717747478
+- https://github.com/ceph/ceph/pull/67012#discussion_r2718097988
+- https://github.com/ceph/ceph/pull/67012#discussion_r2718407572
+- https://github.com/ceph/ceph/pull/67012#discussion_r2718451069
+- https://github.com/ceph/ceph/pull/67012#discussion_r2718508241
+- https://github.com/ceph/ceph/pull/67012#discussion_r2718562561
+- https://github.com/ceph/ceph/pull/67012#discussion_r2718564363
+- https://github.com/ceph/ceph/pull/67012#discussion_r2718569838
+- https://github.com/ceph/ceph/pull/67012#discussion_r2718575998
 
 ---
 

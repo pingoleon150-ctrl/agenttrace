@@ -26,10 +26,12 @@ from agenttrace.monitor import take_watch_query_batch, watch_cycle
 from agenttrace.notifier import notify_email_alerts
 from agenttrace.pipeline import analyze_cluster, analyze_observations, collect_to_store
 from agenttrace.reviewer import reviewer_from_openclaw, write_findings_html, write_findings_report
+from agenttrace.scoring import score_cluster
 from agenttrace.storage.parquet import write_observation_parquet
 from agenttrace.storage.sqlite import SQLiteStore
 
 DEFAULT_QUERIES_PATH = Path(__file__).with_name("data") / "seed_queries.yaml"
+DEFAULT_CONTINUOUS_OWNERS = ["openai", "anthropics", "google-deepmind", "huggingface", "microsoft"]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -213,6 +215,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--report", default="reports/findings.md")
     p.add_argument("--html", default="reports/site/index.html")
 
+    p = sub.add_parser("rescore-findings", help="Recompute stored finding scores with current policy")
+    p.add_argument("--threshold", type=float, default=0.75)
+    p.add_argument("--report", default="reports/findings.md")
+    p.add_argument("--html", default="reports/site/index.html")
+
     return parser
 
 
@@ -221,13 +228,23 @@ def _add_ledger_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--recheck-repository", action="append", default=[])
     parser.add_argument("--recheck-stale", type=int, metavar="DAYS")
     parser.add_argument("--recheck-all", action="store_true")
+    parser.add_argument(
+        "--continuous-owner",
+        action="append",
+        default=list(DEFAULT_CONTINUOUS_OWNERS),
+        help="GitHub owner never excluded by the analyzed-repository ledger (repeatable)",
+    )
 
 
 def _repository_policy(args):
     ledger = RepositoryLedger(args.ledger)
     requested = set(args.recheck_repository)
+    continuous_owners = {owner.casefold() for owner in args.continuous_owner}
 
     def allowed(repository: str) -> bool:
+        owner = repository.split("/", 1)[0].casefold()
+        if owner in continuous_owners:
+            return True
         return not ledger.should_skip(
             repository,
             recheck_all=args.recheck_all,
@@ -562,6 +579,27 @@ def main() -> int:
         write_findings_report(args.report, findings)
         write_findings_html(args.html, findings)
         print(json.dumps({"report": args.report, "html": args.html, "findings": len(findings)}))
+        return 0
+    if args.command == "rescore-findings":
+        settings = Settings.from_env()
+        scores = []
+        with SQLiteStore(settings.db_path) as store:
+            for alert_id, bundle, summary in store.monitor_alert_bundles():
+                bundle.score = score_cluster(
+                    bundle.signals, bundle.observations, threshold=args.threshold
+                )
+                summary.update(
+                    score=bundle.score.score,
+                    priority_score=bundle.score.score,
+                    confidence=bundle.score.confidence,
+                    reasons=bundle.score.reasons,
+                )
+                store.update_monitor_alert_score(alert_id, bundle, summary)
+                scores.append({"id": alert_id, "score": bundle.score.score})
+            findings = store.monitor_findings()
+        write_findings_report(args.report, findings)
+        write_findings_html(args.html, findings)
+        print(json.dumps({"findings": scores, "report": args.report, "html": args.html}))
         return 0
     if args.command == "db-health":
         settings = Settings.from_env()

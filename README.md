@@ -336,6 +336,15 @@ or a typed-reference trajectory of the same shape spanning at least two
 conversation, resource, or event contexts. A checkpoint-to-resume path is the
 state-transfer equivalent.
 
+Exceptional evidence is a routing rule, not a fixed score. Its priority retains the signal's
+reliability-adjusted strength; it is never promoted to a hard-coded numeric floor. Historical
+findings can be migrated after a policy update with `agenttrace rescore-findings`.
+
+Default discovery includes targeted `agent` and `handoff` searches for `openai`, `anthropics`,
+`google-deepmind`, `huggingface`, and `microsoft`. These owners bypass the normal analyzed-repo
+skip rule so their new activity remains continuously eligible. Add another organization with
+`--continuous-owner OWNER` and a matching owner-qualified seed query.
+
 Three independent strong anchor components produce `decision=confirmed`;
 review routes with fewer components produce `decision=review`. This is an
 operational evidence state, not attribution proof.

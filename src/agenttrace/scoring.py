@@ -60,9 +60,12 @@ def score_cluster(
             calibration.likelihood_ratios.get(signal.name, 0.0) >= calibration.exceptional_lr
             for signal in selected.values()
         )
-    exceptional = _has_exceptional_evidence(selected, effective) or calibrated_exceptional
-    if exceptional:
-        positive = max(positive, 0.85)
+    exceptional_strength = _exceptional_strength(selected, effective)
+    exceptional = exceptional_strength > 0 or calibrated_exceptional
+    if exceptional_strength:
+        positive = max(positive, exceptional_strength)
+    if calibrated_exceptional and posterior is not None:
+        positive = max(positive, posterior)
     if verified_exchange:
         positive = max(positive, 0.80)
     benign = by_family.get("benign", 0.0)
@@ -122,6 +125,7 @@ def score_cluster(
         reasons.append("route=verified_relational_exchange")
     elif exceptional:
         reasons.append("route=exceptional_single_signal")
+        reasons.append(f"exceptional_strength={exceptional_strength:.2f}")
     elif len(strong_anchor_components) >= 2:
         reasons.append("route=two_independent_strong_anchors")
     elif medium:
@@ -183,8 +187,13 @@ def _has_verified_exchange(selected: dict[str, Signal], fired: set[str]) -> bool
     return native > 0 or (cross_context > 0 and "artifact" in fired)
 
 
-def _has_exceptional_evidence(selected: dict[str, Signal], effective: dict[str, float]) -> bool:
-    return any(
-        signal.metadata.get("exceptional_evidence") and effective.get(family, 0.0) >= 0.82
-        for family, signal in selected.items()
+def _exceptional_strength(selected: dict[str, Signal], effective: dict[str, float]) -> float:
+    return max(
+        (
+            effective.get(family, 0.0)
+            for family, signal in selected.items()
+            if signal.metadata.get("exceptional_evidence")
+            and effective.get(family, 0.0) >= 0.82
+        ),
+        default=0.0,
     )

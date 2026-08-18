@@ -470,3 +470,21 @@ class SQLiteStore:
             }
             for row in rows
         ]
+
+    def monitor_alert_bundles(self) -> list[tuple[int, EvidenceBundle, dict[str, Any]]]:
+        rows = self.conn.execute(
+            "SELECT id, json, summary FROM monitor_alerts ORDER BY id"
+        ).fetchall()
+        return [
+            (int(row[0]), EvidenceBundle.model_validate_json(row[1]), json.loads(row[2]))
+            for row in rows
+        ]
+
+    def update_monitor_alert_score(
+        self, alert_id: int, bundle: EvidenceBundle, summary: dict[str, Any]
+    ) -> None:
+        self.conn.execute(
+            "UPDATE monitor_alerts SET json=?, summary=? WHERE id=?",
+            (bundle.model_dump_json(), json.dumps(summary, indent=2), alert_id),
+        )
+        self.conn.commit()

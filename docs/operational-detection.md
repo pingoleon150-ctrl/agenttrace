@@ -88,6 +88,10 @@ detector is then applied:
 priority_score = clamp(positive * (1 - 0.65 * benign_score), 0, 1)
 ```
 
+Exceptional evidence routes a cluster using its own reliability-adjusted strength. It does not
+replace the computed priority with a constant floor, preserving ranking resolution between
+exceptional candidates.
+
 Components beyond the strongest three can satisfy corroboration policy but do
 not add another weighted term. The formula is a transparent ranking heuristic.
 It has not been calibrated against a representative base rate of
