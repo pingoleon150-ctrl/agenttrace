@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
+from agenttrace.correlation.trajectories import longitudinal_candidates
 from agenttrace.detectors.artifact_reuse import extract_artifacts
 from agenttrace.detectors.behavior import detect_behavioral_signals
 from agenttrace.models import Observation, Provenance
@@ -54,3 +55,20 @@ def test_single_day_odd_hours_are_not_round_the_clock_persistence():
         signal.name == "round_the_clock_objective_persistence"
         for signal in detect_behavioral_signals(items)
     )
+
+
+def test_unrelated_opaque_documents_do_not_form_a_global_trajectory():
+    payloads = [
+        "DR9FqKxUzQGJ9gjs38QT+kAmpUYPyal7",
+        "hkgRtuUFTg5ZuarGkbIqpmGQSgJwPZoD",
+        "0U7NS8saZ0wbqSJ9X+/WtCkG5UFZZQSw",
+        "9lEWffdObkJEFnq/qGbEqajwwNFeH07i",
+        "1V3X3nu+ajRJEJNCbPI0PVehUY4N5Fj2",
+        "80mgCQ4ZElf6nBOTv80XsAHgEUgoK8A0",
+    ]
+    prefixes = ["entropy table", "oauth example", "bracket seed", "database migration", "api sample", "wallet fixture"]
+    items = [
+        observation(i, f"actor-{i}", f"{prefixes[i]}: {payload}", hours=i / 120)
+        for i, payload in enumerate(payloads)
+    ]
+    assert not any(key.startswith("trajectory:opaque") for key in longitudinal_candidates(items))

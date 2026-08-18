@@ -23,6 +23,7 @@ from agenttrace.corpus import evaluate_labeled_corpus
 from agenttrace.ledger import RepositoryLedger, update_ledger
 from agenttrace.models import Observation, Provenance
 from agenttrace.monitor import take_watch_query_batch, watch_cycle
+from agenttrace.notifier import notify_email_alerts
 from agenttrace.pipeline import analyze_cluster, analyze_observations, collect_to_store
 from agenttrace.storage.parquet import write_observation_parquet
 from agenttrace.storage.sqlite import SQLiteStore
@@ -169,6 +170,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--status", choices=["reviewed", "false-positive", "escalated"], required=True)
 
     sub.add_parser("db-health", help="Report local database size, event range, and row counts")
+
+    p = sub.add_parser(
+        "notify-email", help="Send unnotified monitor alerts through macOS Mail"
+    )
+    p.add_argument("--db", required=True, help="AgentTrace monitor SQLite database")
+    p.add_argument("--recipient", required=True)
+    p.add_argument("--test", action="store_true", help="Send a delivery test without changing state")
 
     p = sub.add_parser(
         "export-ledger", help="Export analyzed repositories from SQLite to the shared ledger"
@@ -516,6 +524,10 @@ def main() -> int:
         settings = Settings.from_env()
         with SQLiteStore(settings.db_path) as store:
             print(json.dumps(store.health(), indent=2))
+        return 0
+    if args.command == "notify-email":
+        sent = notify_email_alerts(args.db, args.recipient, test=args.test)
+        print(json.dumps({"sent": sent, "test": args.test}))
         return 0
     if args.command == "export-ledger":
         settings = Settings.from_env()

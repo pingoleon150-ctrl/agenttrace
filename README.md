@@ -212,6 +212,19 @@ no source requests, and resumes on its next poll after resolution. `--once`
 keeps one-shot behavior and exits with status 2 for a pending alert. Use a
 process supervisor or service manager for crash and reboot persistence.
 
+On macOS, a separate private LaunchAgent can poll the monitor database and send
+each new alert exactly once through the configured Mail.app account:
+
+```bash
+agenttrace notify-email \
+  --db /path/to/agenttrace-monitor.db \
+  --recipient alerts@example.com
+```
+
+The recipient belongs in the local LaunchAgent rather than the repository. A
+one-way hash and the last delivered alert ID are stored in SQLite to suppress
+duplicates; the address itself is not persisted in the database.
+
 On macOS, `scripts/run-monitor-macos.sh` is a supervisor-friendly entry point.
 It reads the existing `gh` CLI credential when no token is already present,
 never writes the token to disk, and exposes its bounds through `AGENTTRACE_*`

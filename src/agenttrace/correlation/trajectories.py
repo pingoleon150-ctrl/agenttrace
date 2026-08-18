@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from datetime import timedelta
 
@@ -14,14 +15,17 @@ def longitudinal_candidates(observations: list[Observation]) -> dict[str, list[O
     by_actor: dict[str, list[Observation]] = defaultdict(list)
     by_resource: dict[str, list[Observation]] = defaultdict(list)
     by_credential: dict[str, list[Observation]] = defaultdict(list)
-    opaque: list[Observation] = []
+    opaque_by_scaffold: dict[str, list[Observation]] = defaultdict(list)
     for item in observations:
         by_actor[item.actor_key or item.actor.casefold()].append(item)
         if item.resource_key:
             by_resource[item.resource_key].append(item)
         text = item.text or ""
-        if any(_opaque_quality(value) >= 0.72 for value in OPAQUE_RE.findall(text)):
-            opaque.append(item)
+        opaque_values = [value for value in OPAQUE_RE.findall(text) if _opaque_quality(value) >= 0.72]
+        if opaque_values:
+            scaffold = _opaque_scaffold(text)
+            if len(scaffold) >= 8:
+                opaque_by_scaffold[scaffold].append(item)
         for value in CREDENTIAL_RE.findall(text):
             by_credential[value.casefold()].append(item)
 
@@ -38,9 +42,11 @@ def longitudinal_candidates(observations: list[Observation]) -> dict[str, list[O
             and len({item.resource_key for item in items}) >= 2
         ):
             candidates[f"trajectory:credential:{sha256_text(value)[:16]}"] = items
-    for index, items in enumerate(_sessionize(opaque, timedelta(hours=2))):
-        if len(items) >= 6 and len({item.actor_key for item in items}) >= 2:
-            candidates[f"trajectory:opaque:{index}:{_event_digest(items)}"] = items
+    for scaffold, scaffold_items in opaque_by_scaffold.items():
+        for index, items in enumerate(_sessionize(scaffold_items, timedelta(hours=2))):
+            if len(items) >= 6 and len({item.actor_key for item in items}) >= 2:
+                digest = sha256_text(scaffold)[:10]
+                candidates[f"trajectory:opaque:{digest}:{index}:{_event_digest(items)}"] = items
     return candidates
 
 
@@ -65,3 +71,9 @@ def _sessionize(items: list[Observation], maximum_gap: timedelta) -> list[list[O
 def _event_digest(items: list[Observation]) -> str:
     keys = sorted(item.event_key or item.source_event_id for item in items)
     return sha256_text("\n".join(keys))[:12]
+
+
+def _opaque_scaffold(text: str) -> str:
+    without_payloads = OPAQUE_RE.sub("<opaque>", text.casefold())
+    without_numbers = re.sub(r"\d+", "<number>", without_payloads)
+    return " ".join(without_numbers.split())

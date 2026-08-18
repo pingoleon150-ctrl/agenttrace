@@ -7,6 +7,7 @@ __pycache__/
 *.db-shm
 *.db-wal
 agenttrace-monitor.log
+agenttrace-email-notifier.log
 agenttrace-monitor.pid
 .env
 .DS_Store
