@@ -66,6 +66,7 @@ class GrepAppCollector(Collector):
                         observed_at=utcnow(),
                         event_time=utcnow(),
                         actor=repo.split("/", 1)[0] if "/" in repo else repo or "unknown",
+                        platform="github",
                         event_type="code_search_hit",
                         text=text,
                         repository=repo or None,

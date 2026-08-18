@@ -44,7 +44,7 @@ def detect_protocol(observation: Observation) -> list[Signal]:
             family="protocol",
             name="protocol_markers",
             score=score,
-            observation_ids=[observation.source_event_id],
+            observation_ids=[observation.event_key or observation.source_event_id],
             evidence=hits,
         )
     ]

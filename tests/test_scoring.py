@@ -24,9 +24,36 @@ def test_requires_multiple_signal_families():
         threshold=0.2,
     )
     assert result.reviewable is False
+    assert result.confidence == "low"
 
 
-def test_reviewable_multi_signal_cluster():
+def test_two_strong_independent_families_can_be_reviewable():
+    signals = [
+        Signal(family="artifact", name="reuse", score=0.98),
+        Signal(family="semantic", name="exchange", score=0.95),
+    ]
+    result = score_cluster(signals, [obs("a", "1"), obs("b", "2")], threshold=0.75)
+    assert result.reviewable is True
+    assert result.confidence == "high"
+
+
+def test_correlated_families_do_not_count_as_two_anchors():
+    signals = [
+        Signal(family="artifact", name="reuse", score=0.98),
+        Signal(
+            family="semantic",
+            name="exchange",
+            score=0.95,
+            depends_on=["artifact"],
+        ),
+    ]
+    result = score_cluster(signals, [obs("a", "1"), obs("b", "2")], threshold=0.75)
+    assert result.reviewable is False
+    assert result.confidence == "medium"
+    assert "correlated_families_collapsed=1" in result.reasons
+
+
+def test_one_anchor_with_multiple_corroborators_is_watchlist_only():
     signals = [
         Signal(family="artifact", name="reuse", score=0.95),
         Signal(family="temporal", name="handoff", score=0.90),
@@ -34,7 +61,8 @@ def test_reviewable_multi_signal_cluster():
         Signal(family="protocol", name="protocol", score=0.80),
     ]
     result = score_cluster(signals, [obs("a", "1"), obs("b", "2")], threshold=0.50)
-    assert result.reviewable is True
+    assert result.reviewable is False
+    assert result.confidence == "medium"
 
 
 def test_benign_penalty_can_suppress():
@@ -51,3 +79,26 @@ def test_benign_penalty_can_suppress():
         signals, [obs("dependabot[bot]", "1"), obs("github-actions[bot]", "2")], threshold=0.6
     )
     assert result.reviewable is False
+
+
+def test_same_raw_handle_on_two_platforms_does_not_satisfy_actor_gate():
+    github = obs("alice", "1")
+    forum = Observation(
+        source="public-forum",
+        source_event_id="2",
+        observed_at=github.observed_at,
+        event_time=github.event_time,
+        actor="alice",
+        event_type="post",
+        provenance=Provenance(url="https://forum.example/posts/2"),
+    )
+    result = score_cluster(
+        [
+            Signal(family="artifact", name="reuse", score=0.98),
+            Signal(family="semantic", name="exchange", score=0.95),
+        ],
+        [github, forum],
+        threshold=0.75,
+    )
+    assert result.reviewable is False
+    assert result.actor_count == 1

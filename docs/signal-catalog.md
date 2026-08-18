@@ -6,19 +6,33 @@ This catalog captures current and proposed detection ideas. A signal is not an a
 
 ### Protocol markers
 
-Examples: task IDs, worker IDs, ACK/NACK semantics, heartbeat/status messages, retry counters, sequence numbers, checkpoints, queues, nonces, public-key fingerprints.
+Examples: task IDs, worker IDs, ACK/NACK semantics, heartbeat/status messages,
+retry counters, sequence numbers, checkpoints, queues, and nonces.
 
 Risk: ordinary distributed systems use the same vocabulary. Treat as supporting evidence only.
 
-### Rare artifact propagation
+### Typed artifact propagation
 
-Track rare tokens, hashes, code fingerprints, long identifiers, and URLs that appear *inside content* and subsequently occur under another actor.
+Track values attached to explicit coordination keys, substantial normalized
+code blocks, and normalized external content URLs when they subsequently occur
+under another actor. Bare SHAs, UUIDs, issue IDs, numeric IDs, placeholders,
+arbitrary long strings, GitHub URLs, and provenance URLs are excluded. Evidence
+stores a digest instead of the raw value.
 
-Important: provenance URLs are never artifacts. A GitHub issue URL used only to identify the source must not create a shared-artifact edge.
+Artifact reuse is an anchor family but does not manufacture graph edges. URL
+reuse is too weak to merge candidate buckets across contexts.
+
+### Relational semantic trajectories
+
+Index explicit task/state references and native reply ancestry to find linked
+delegation-to-result and checkpoint-to-resume paths. A distinct ACK must be a
+third event between the endpoints. Cross-context paths require a shared typed
+reference; quoted or copied summaries and local negations are ignored.
 
 ### Rapid cross-actor handoff
 
-Measure latency when activity alternates between actors inside the same candidate cluster.
+Measure latency when activity alternates between actors connected by a native
+reply or shared typed artifact inside the same candidate cluster.
 
 Risk: CI and active human teams can also be fast.
 
@@ -30,17 +44,23 @@ Risk: cron jobs and release automation are strong negatives.
 
 ### Coordination graph topology
 
-Construct actor/event/artifact/repository graphs and score reciprocal actor edges, fan-out, strongly connected actor groups, and shared-artifact edges.
+Construct actor/event graphs from native parent/reply relationships and score
+reciprocal actor edges, fan-out, and strongly connected actor groups. Shared
+artifacts remain separate evidence and do not create actor-to-actor edges.
 
 ### Explicit identity markers
 
-Correlate public worker IDs, key fingerprints, public keys, and related identifiers reused across pseudonymous actors.
+Correlate public key fingerprints, key IDs, and public keys reused across
+distinct pseudonymous actors and at least two contexts. Worker/task IDs remain
+artifact evidence and are not counted again as identity.
 
 Boundary: do not deanonymize people. The output is a pseudonymous cluster.
 
 ### Benign automation suppression
 
-Down-rank known bot identities and automation vocabulary.
+Down-rank composite routine-automation fingerprints built from GitHub actor/app
+metadata, generic bot naming patterns, routine event types or messages, and
+repeated templates. Identity or workflow vocabulary alone is not penalized.
 
 ## High-priority proposed signals
 
@@ -51,10 +71,6 @@ Instead of asking only whether an artifact is reused, measure how quickly it mov
 ### Novelty-weighted artifacts
 
 An artifact appearing thousands of times on GitHub is weak evidence. A token or error fingerprint observed only a handful of times is stronger. Maintain approximate global frequency estimates so rarity becomes part of artifact weight.
-
-### Task/result pairing
-
-Identify a request-like observation followed by an actor change and a result-like observation referencing the same rare artifacts or task identifier.
 
 ### Fan-out / fan-in motifs
 

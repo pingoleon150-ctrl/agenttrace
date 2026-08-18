@@ -88,6 +88,8 @@ class GitHubIssueSearchCollector(Collector):
                             "state": item.get("state"),
                             "labels": [label.get("name") for label in item.get("labels", [])],
                             "comments": item.get("comments", 0),
+                            "actor_type": (item.get("user") or {}).get("type"),
+                            "author_association": item.get("author_association"),
                         },
                         provenance=Provenance(
                             url=item.get("html_url", ""),
@@ -151,7 +153,13 @@ class GitHubThreadSearchCollector(Collector):
                     artifact_urls=extract_urls(root_text),
                     code_blocks=extract_code_blocks(root_text),
                     content_sha256=sha256_text(root_text),
-                    metadata={"number": number, "state": item.get("state"), "root": True},
+                    metadata={
+                        "number": number,
+                        "state": item.get("state"),
+                        "root": True,
+                        "actor_type": (item.get("user") or {}).get("type"),
+                        "author_association": item.get("author_association"),
+                    },
                     provenance=Provenance(
                         url=item.get("html_url", ""),
                         retrieval_method="github-rest-thread-search",
@@ -161,7 +169,6 @@ class GitHubThreadSearchCollector(Collector):
 
                 fetched = 0
                 page = 1
-                previous_id = root_id
                 while fetched < self.comments_per_thread:
                     per_page = min(100, self.comments_per_thread - fetched)
                     comments_response = await gh.get(
@@ -184,22 +191,83 @@ class GitHubThreadSearchCollector(Collector):
                             text=comment_text,
                             repository=repository,
                             thread_id=str(number),
-                            reply_to=previous_id,
+                            reply_to=None,
                             artifact_urls=extract_urls(comment_text),
                             code_blocks=extract_code_blocks(comment_text),
                             content_sha256=sha256_text(comment_text),
-                            metadata={"issue_number": number, "root": False},
+                            metadata={
+                                "issue_number": number,
+                                "root": False,
+                                "conversation_root": root_id,
+                                "actor_type": (comment.get("user") or {}).get("type"),
+                                "author_association": comment.get("author_association"),
+                                "github_app_slug": (
+                                    (comment.get("performed_via_github_app") or {}).get("slug")
+                                ),
+                            },
                             provenance=Provenance(
                                 url=comment.get("html_url", item.get("html_url", "")),
                                 retrieval_method="github-rest-thread-comments",
                                 retrieved_at=utcnow(),
                             ),
                         )
-                        previous_id = comment_id
                         fetched += 1
                         if fetched >= self.comments_per_thread:
                             break
                     page += 1
+
+                if "pull_request" in item:
+                    review_fetched = 0
+                    review_page = 1
+                    while review_fetched < self.comments_per_thread:
+                        per_page = min(100, self.comments_per_thread - review_fetched)
+                        review_response = await gh.get(
+                            f"/repos/{repository}/pulls/{number}/comments",
+                            params={"per_page": per_page, "page": review_page},
+                        )
+                        review_comments = review_response.json()
+                        if not review_comments:
+                            break
+                        for comment in review_comments:
+                            comment_text = comment.get("body") or ""
+                            comment_id = f"review-comment:{comment['id']}"
+                            parent_id = comment.get("in_reply_to_id")
+                            yield Observation(
+                                source="github-thread-search",
+                                source_event_id=comment_id,
+                                observed_at=utcnow(),
+                                event_time=_parse_dt(comment.get("created_at")),
+                                actor=(comment.get("user") or {}).get("login", "unknown"),
+                                event_type="pull_request_review_comment",
+                                text=comment_text,
+                                repository=repository,
+                                thread_id=str(number),
+                                reply_to=(
+                                    f"review-comment:{parent_id}" if parent_id is not None else None
+                                ),
+                                artifact_urls=extract_urls(comment_text),
+                                code_blocks=extract_code_blocks(comment_text),
+                                content_sha256=sha256_text(comment_text),
+                                metadata={
+                                    "pull_request_number": number,
+                                    "conversation_root": root_id,
+                                    "path": comment.get("path"),
+                                    "actor_type": (comment.get("user") or {}).get("type"),
+                                    "author_association": comment.get("author_association"),
+                                    "github_app_slug": (
+                                        (comment.get("performed_via_github_app") or {}).get("slug")
+                                    ),
+                                },
+                                provenance=Provenance(
+                                    url=comment.get("html_url", item.get("html_url", "")),
+                                    retrieval_method="github-rest-pr-review-comments",
+                                    retrieved_at=utcnow(),
+                                ),
+                            )
+                            review_fetched += 1
+                            if review_fetched >= self.comments_per_thread:
+                                break
+                        review_page += 1
 
 
 class GitHubCodeSearchCollector(Collector):
@@ -294,16 +362,19 @@ def github_event_to_observation(event: dict[str, Any], retrieval_method: str) ->
     thread_id: str | None = None
     reply_to: str | None = None
 
-    if event_type in {"IssuesEvent", "IssueCommentEvent"}:
+    event_metadata: dict[str, Any] = {}
+    if event_type == "IssuesEvent":
+        issue = payload.get("issue") or {}
+        text_parts.extend(filter(None, [issue.get("title"), issue.get("body")]))
+        thread_id = str(issue.get("number")) if issue.get("number") is not None else None
+        urls.extend(filter(None, [issue.get("html_url")]))
+    elif event_type == "IssueCommentEvent":
         issue = payload.get("issue") or {}
         comment = payload.get("comment") or {}
-        text_parts.extend(
-            filter(None, [issue.get("title"), issue.get("body"), comment.get("body")])
-        )
+        text_parts.extend(filter(None, [comment.get("body")]))
         thread_id = str(issue.get("number")) if issue.get("number") is not None else None
-        urls.extend(filter(None, [issue.get("html_url"), comment.get("html_url")]))
-        if comment.get("id"):
-            reply_to = f"issue:{issue.get('id')}"
+        urls.extend(filter(None, [comment.get("html_url"), issue.get("html_url")]))
+        event_metadata["conversation_root"] = f"issue:{issue.get('id')}"
     elif event_type == "PullRequestEvent":
         pr = payload.get("pull_request") or {}
         text_parts.extend(filter(None, [pr.get("title"), pr.get("body")]))
@@ -320,8 +391,7 @@ def github_event_to_observation(event: dict[str, Any], retrieval_method: str) ->
             filter(None, [payload.get("ref_type"), payload.get("ref"), payload.get("description")])
         )
     else:
-        # Keep metadata-only events useful for temporal analysis without pretending they contain text.
-        text_parts.append(event_type)
+        return None
 
     text = "\n".join(text_parts).strip() or None
     public_url = (
@@ -343,7 +413,12 @@ def github_event_to_observation(event: dict[str, Any], retrieval_method: str) ->
         artifact_urls=extract_urls(text),
         code_blocks=extract_code_blocks(text),
         content_sha256=sha256_text(text or event_type),
-        metadata={"public": event.get("public", True), "payload_action": payload.get("action")},
+        metadata={
+            "public": event.get("public", True),
+            "payload_action": payload.get("action"),
+            "actor_type": (event.get("actor") or {}).get("type"),
+            **event_metadata,
+        },
         provenance=Provenance(
             url=public_url, retrieval_method=retrieval_method, retrieved_at=utcnow()
         ),

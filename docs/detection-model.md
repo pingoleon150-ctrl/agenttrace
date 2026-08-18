@@ -2,15 +2,39 @@
 
 ## Signal hierarchy
 
-| Family | Example | Default evidentiary value |
-|---|---|---|
-| Artifact propagation | rare token/code/hash reused by another identity | High |
-| Graph | delegation/fan-out/result aggregation | High |
-| Identity | same public key/fingerprint/worker token | High |
-| Temporal | rapid or strongly periodic handoffs | Medium-high |
-| Protocol | task IDs, ACK, heartbeat, retry, TTL | Medium |
-| Semantic | roles, state transfer, delegation language | Medium |
-| Generic AI prose | stylistic "LLM-like" text | Low; intentionally unused |
+Signals have different decision roles. The implementation does not treat a
+count of families as independence.
+
+| Family | Example | Decision role | Reliability |
+|---|---|---|---:|
+| Relational semantics | linked delegation/ACK/result or checkpoint/resume trajectory | Anchor | 1.00 |
+| Identity | public key or fingerprint reused by distinct actors and contexts | Anchor | 1.00 |
+| Artifact propagation | typed coordination value or substantial code fingerprint reused by another actor | Anchor | 0.95 |
+| Protocol | task IDs, ACK, heartbeat, retry, TTL | Supporting | 0.90 |
+| Graph | topology built from native reply relationships | Supporting | 0.70 |
+| Temporal | rapid or periodic causally linked handoffs | Supporting | 0.65 |
+| Generic AI prose | stylistic "LLM-like" text | Intentionally unused | 0.00 |
+
+Bare commit SHAs, UUIDs, issue numbers, arbitrary long strings, GitHub source
+URLs, and matching usernames are not coordination artifacts. Semantic paths
+must use native reply ancestry or a shared typed reference. Quotes, copied
+summaries, and locally negated claims are removed before path construction.
+
+## Decision policy
+
+The numeric value is an operational priority score, not a probability. A high
+tier requires complete provenance, at least two distinct normalized actor
+labels, a low benign-automation penalty, and one of two routes:
+
+1. two independent strong anchor components; or
+2. a verified relational exchange. A native exchange requires a real linked
+   trajectory; a cross-context exchange also requires typed-artifact evidence.
+
+Dependencies between families are declared explicitly and collapsed before
+combination. Protocol, timing, or graph evidence cannot produce a high alert
+without an anchor. Routine automation is suppressed by composite fingerprints
+that combine bot/app identity metadata with routine workflow behavior; a bot
+name or automation word alone is insufficient.
 
 ## Evidence bundle contract
 

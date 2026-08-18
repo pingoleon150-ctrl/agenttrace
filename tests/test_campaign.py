@@ -1,4 +1,6 @@
 import asyncio
+import json
+import sqlite3
 from datetime import UTC, datetime
 
 import httpx
@@ -95,6 +97,77 @@ def test_query_and_page_rotation_persist(tmp_path):
             "github-code", "one", current_page=2, max_page=3, updated_at="later", step=2
         )
         assert store.discovery_page("github-code", "one", 3) == 1
+
+
+def test_opaque_source_cursor_round_trip(tmp_path):
+    cursor = {"after": "t3_opaque", "timestamp": "2026-08-17T12:00:00Z"}
+    with SQLiteStore(tmp_path / "cursor.db") as store:
+        store.set_discovery_cursor("public-forum", "agents", cursor, "now")
+        assert store.discovery_cursor("public-forum", "agents") == cursor
+
+
+def test_database_health_reports_bounded_operational_state(tmp_path):
+    with SQLiteStore(tmp_path / "health.db") as store:
+        health = store.health()
+    assert health["bytes_on_disk"] > 0
+    assert health["counts"]["observations"] == 0
+    assert health["pending_alert"] is False
+
+
+def test_legacy_observation_primary_key_is_migrated_without_data_loss(tmp_path):
+    database = tmp_path / "legacy.db"
+    payload = {
+        "source": "github-thread-search",
+        "source_event_id": "legacy-1",
+        "observed_at": "2026-08-17T00:00:00+00:00",
+        "event_time": "2026-08-17T00:00:00+00:00",
+        "actor": "alice",
+        "event_type": "issue",
+        "provenance": {"url": "https://github.com/example/repo/issues/1"},
+    }
+    connection = sqlite3.connect(database)
+    connection.execute(
+        """
+        CREATE TABLE observations (
+            source TEXT NOT NULL,
+            source_event_id TEXT NOT NULL,
+            event_time TEXT NOT NULL,
+            actor TEXT NOT NULL,
+            repository TEXT,
+            thread_id TEXT,
+            content_sha256 TEXT,
+            json TEXT NOT NULL,
+            PRIMARY KEY (source, source_event_id)
+        )
+        """
+    )
+    connection.execute(
+        "INSERT INTO observations VALUES(?,?,?,?,?,?,?,?)",
+        (
+            "github-thread-search",
+            "legacy-1",
+            payload["event_time"],
+            "alice",
+            None,
+            None,
+            None,
+            json.dumps(payload),
+        ),
+    )
+    connection.commit()
+    connection.close()
+
+    with SQLiteStore(database) as store:
+        restored = store.list_observations()
+        primary_key = [
+            column[1]
+            for column in store.conn.execute("PRAGMA table_info(observations)")
+            if column[5]
+        ]
+
+    assert len(restored) == 1
+    assert restored[0].event_key == "github:event:github-thread-search:legacy-1"
+    assert primary_key == ["event_key"]
 
 
 def test_campaign_advances_only_successful_source_pages(tmp_path):

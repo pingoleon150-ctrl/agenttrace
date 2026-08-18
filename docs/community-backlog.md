@@ -24,9 +24,11 @@ Suggested labels: `research`, `evaluation`.
 
 ## P1 — Better GitHub coverage
 
-### Expand PR review-thread collection
+### Broaden PR review coverage
 
-Add public pull-request review comments and review submissions so code-review coordination is reconstructed beyond top-level issue comments.
+The collector already follows native `in_reply_to_id` relationships for public
+pull-request review comments. Add review submissions, pagination stress tests,
+and commit/diff context so coverage extends beyond inline reply chains.
 
 Suggested labels: `collector`, `github`.
 
@@ -42,9 +44,11 @@ Evaluate whether release notes and tags expose persistent coordination markers u
 
 Suggested labels: `collector`, `github`.
 
-### Build GitHub rate-limit scheduler and checkpoints
+### Add an adaptive GitHub rate-limit scheduler
 
-Persist cursors/checkpoints, respect primary/secondary limits, use conditional requests where appropriate, and prevent duplicate expansion of already-analyzed threads.
+Page cursors, retry handling, and the shared repository ledger are implemented.
+Add conditional requests, explicit primary/secondary quota budgets, adaptive
+concurrency, and resumable thread-expansion checkpoints.
 
 Suggested labels: `collector`, `reliability`.
 

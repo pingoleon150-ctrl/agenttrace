@@ -14,14 +14,19 @@ Useful for very recent public activity and temporal experiments. It is not a com
 
 ## GH Archive
 
-GH Archive records GitHub's public event timeline into hourly compressed JSON files and also exposes a BigQuery public dataset. This is the preferred source for historical replay and large-scale temporal/graph research.
+GH Archive records GitHub's public event timeline into hourly compressed JSON
+files and also exposes a BigQuery public dataset. AgentTrace's
+`gharchive-hour` command is a bounded single-hour replay tool. BigQuery or a
+distributed candidate-generation job is the practical route for large-scale
+temporal/graph research; local hourly replay is for bounded reconstruction and
+verification.
 
 Recommended strategy:
 
 ```text
-BigQuery / hourly archives -> coarse candidate generation
-                           -> AgentTrace replay
-                           -> GitHub REST verification
+BigQuery / distributed archive scan -> coarse candidate generation
+                                    -> bounded AgentTrace hourly replay
+                                    -> GitHub REST verification
 ```
 
 ## grep.app

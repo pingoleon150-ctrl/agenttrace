@@ -3,12 +3,16 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+from agenttrace import __version__
+
 
 @dataclass(frozen=True)
 class Settings:
     github_token: str | None = None
     db_path: str = "agenttrace.db"
-    user_agent: str = "AgentTrace/0.2 (+https://github.com/pingoleon150-ctrl/agenttrace)"
+    user_agent: str = (
+        f"AgentTrace/{__version__} (+https://github.com/pingoleon150-ctrl/agenttrace)"
+    )
     timeout_seconds: float = 30.0
 
     @classmethod

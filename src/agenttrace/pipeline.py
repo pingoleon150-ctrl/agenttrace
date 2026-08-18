@@ -7,7 +7,7 @@ from agenttrace.detectors.artifact_reuse import detect_cross_actor_reuse
 from agenttrace.detectors.benign import detect_benign_automation
 from agenttrace.detectors.identity import detect_shared_identity_markers
 from agenttrace.detectors.protocol import detect_protocol
-from agenttrace.detectors.semantic import detect_coordination_semantics
+from agenttrace.detectors.semantic import detect_coordination_exchange
 from agenttrace.detectors.temporal import detect_periodicity, detect_temporal_handoffs
 from agenttrace.models import EvidenceBundle, Observation, Signal
 from agenttrace.scoring import score_cluster
@@ -15,11 +15,18 @@ from agenttrace.storage.sqlite import SQLiteStore
 from agenttrace.util import utcnow
 
 
-async def collect_to_store(collector: Collector, store: SQLiteStore) -> list[Observation]:
-    observations = []
+async def collect_to_store(
+    collector: Collector, store: SQLiteStore, batch_size: int = 500
+) -> list[Observation]:
+    observations: list[Observation] = []
+    pending: list[Observation] = []
     async for observation in collector.collect():
-        store.upsert_observation(observation)
         observations.append(observation)
+        pending.append(observation)
+        if len(pending) >= max(1, batch_size):
+            store.upsert_observations_batch(pending)
+            pending.clear()
+    store.upsert_observations_batch(pending)
     return observations
 
 
@@ -29,8 +36,8 @@ def analyze_cluster(
     signals: list[Signal] = []
     for observation in observations:
         signals.extend(detect_protocol(observation))
-        signals.extend(detect_coordination_semantics(observation))
 
+    signals.extend(detect_coordination_exchange(observations))
     signals.extend(detect_cross_actor_reuse(observations))
     signals.extend(detect_shared_identity_markers(observations))
     signals.extend(detect_temporal_handoffs(observations))
