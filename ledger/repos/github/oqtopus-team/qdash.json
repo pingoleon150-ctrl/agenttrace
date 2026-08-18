@@ -1,0 +1,10 @@
+{
+  "detector_version": "0.4.0",
+  "last_checked_at": "2026-08-18T21:37:51.029840+00:00",
+  "last_event_time": "2026-08-18T15:56:00+00:00",
+  "max_score": 0.2668,
+  "observations": 12,
+  "query_version": "b2e9feb809dc271a2e7814c1f5599eb40f3c4aac390c89fccd9511d4d2b9dee6",
+  "repository": "oqtopus-team/qdash",
+  "status": "no_high_confidence"
+}

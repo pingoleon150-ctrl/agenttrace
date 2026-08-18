@@ -1,0 +1,10 @@
+{
+  "detector_version": "0.4.0",
+  "last_checked_at": "2026-08-18T02:41:53.850802+00:00",
+  "last_event_time": "2024-05-06T08:49:37+00:00",
+  "max_score": 0.2012,
+  "observations": 3,
+  "query_version": "093d279063acbb56f83c563dd6ca6beffbc81455b8105bc561f319b28881f973",
+  "repository": "oracle-terraform-modules/terraform-oci-oke",
+  "status": "no_high_confidence"
+}

@@ -1,0 +1,10 @@
+{
+  "detector_version": "0.4.0",
+  "last_checked_at": "2026-08-18T19:33:33.169523+00:00",
+  "last_event_time": "2026-08-17T08:36:26+00:00",
+  "max_score": 0.5811,
+  "observations": 29,
+  "query_version": "b2e9feb809dc271a2e7814c1f5599eb40f3c4aac390c89fccd9511d4d2b9dee6",
+  "repository": "vllm-project/vllm",
+  "status": "no_high_confidence"
+}

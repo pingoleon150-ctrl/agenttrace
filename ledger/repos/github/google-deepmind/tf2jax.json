@@ -1,0 +1,10 @@
+{
+  "detector_version": "0.4.0",
+  "last_checked_at": "2026-08-18T20:15:11.678791+00:00",
+  "last_event_time": "2023-08-09T20:37:57+00:00",
+  "max_score": 0.0,
+  "observations": 2,
+  "query_version": "b2e9feb809dc271a2e7814c1f5599eb40f3c4aac390c89fccd9511d4d2b9dee6",
+  "repository": "google-deepmind/tf2jax",
+  "status": "no_high_confidence"
+}

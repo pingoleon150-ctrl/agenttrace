@@ -5,6 +5,7 @@ import re
 from collections import Counter, defaultdict
 from itertools import pairwise
 
+from agenttrace.detectors.benign import _bot_identity
 from agenttrace.models import Observation, Signal
 
 OPAQUE_RE = re.compile(r"(?<![A-Za-z0-9+/=])([A-Za-z0-9+/]{28,}={0,2})(?![A-Za-z0-9+/=])")
@@ -102,6 +103,8 @@ def _detect_round_the_clock_persistence(observations: list[Observation]) -> list
     signals: list[Signal] = []
     by_actor: dict[str, list[Observation]] = defaultdict(list)
     for observation in observations:
+        if _bot_identity(observation):
+            continue
         by_actor[observation.actor_key or observation.actor.casefold()].append(observation)
     for actor, items in by_actor.items():
         if len(items) < 10:
@@ -149,6 +152,8 @@ def _detect_round_the_clock_persistence(observations: list[Observation]) -> list
 def _detect_round_the_clock_pair(observations: list[Observation]) -> list[Signal]:
     by_actor: dict[str, list[Observation]] = defaultdict(list)
     for observation in observations:
+        if _bot_identity(observation):
+            continue
         by_actor[observation.actor_key or observation.actor.casefold()].append(observation)
     qualifying: dict[str, list[Observation]] = {}
     for actor, items in by_actor.items():

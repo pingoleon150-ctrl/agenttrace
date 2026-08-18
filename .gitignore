@@ -17,3 +17,6 @@ data/derived/
 dist/
 build/
 *.egg-info/
+
+# bulky local data
+external/

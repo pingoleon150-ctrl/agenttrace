@@ -1,0 +1,10 @@
+{
+  "detector_version": "0.4.0",
+  "last_checked_at": "2026-08-18T17:43:00.194002+00:00",
+  "last_event_time": "2026-08-05T13:39:27+00:00",
+  "max_score": 0.0,
+  "observations": 15,
+  "query_version": "b2e9feb809dc271a2e7814c1f5599eb40f3c4aac390c89fccd9511d4d2b9dee6",
+  "repository": "zepandasanv2/PES2021-ZePandaPatch",
+  "status": "no_high_confidence"
+}

@@ -1,0 +1,10 @@
+{
+  "detector_version": "0.4.0",
+  "last_checked_at": "2026-08-18T21:20:51.309231+00:00",
+  "last_event_time": "2026-08-18T21:20:12.012784+00:00",
+  "max_score": 0.5674,
+  "observations": 8,
+  "query_version": "b2e9feb809dc271a2e7814c1f5599eb40f3c4aac390c89fccd9511d4d2b9dee6",
+  "repository": "anthropics/claude-for-legal",
+  "status": "no_high_confidence"
+}

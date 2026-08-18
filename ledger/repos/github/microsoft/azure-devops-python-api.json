@@ -1,10 +1,10 @@
 {
-  "detector_version": "0.2.0",
-  "last_checked_at": "2026-08-17T22:15:00.014434+00:00",
-  "last_event_time": "2026-08-17T22:14:23.070084+00:00",
-  "max_score": 0.0,
-  "observations": 1,
-  "query_version": "093d279063acbb56f83c563dd6ca6beffbc81455b8105bc561f319b28881f973",
+  "detector_version": "0.4.0",
+  "last_checked_at": "2026-08-18T20:45:12.668972+00:00",
+  "last_event_time": "2022-10-31T11:36:58+00:00",
+  "max_score": 0.2012,
+  "observations": 3,
+  "query_version": "b2e9feb809dc271a2e7814c1f5599eb40f3c4aac390c89fccd9511d4d2b9dee6",
   "repository": "microsoft/azure-devops-python-api",
   "status": "no_high_confidence"
 }

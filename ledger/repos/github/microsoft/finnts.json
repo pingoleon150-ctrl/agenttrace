@@ -1,0 +1,10 @@
+{
+  "detector_version": "0.4.0",
+  "last_checked_at": "2026-08-18T19:15:53.838630+00:00",
+  "last_event_time": "2026-08-18T19:15:07.492836+00:00",
+  "max_score": 0.0,
+  "observations": 1,
+  "query_version": "b2e9feb809dc271a2e7814c1f5599eb40f3c4aac390c89fccd9511d4d2b9dee6",
+  "repository": "microsoft/finnts",
+  "status": "no_high_confidence"
+}
