@@ -12,9 +12,8 @@ in-flight request per collector + small delay, plus campaign RateGovernor.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
-from urllib.parse import quote_plus
 
 import httpx
 
@@ -28,9 +27,9 @@ DEFAULT_SUBREDDITS = "AI_Agents,Autogpt,LLMDevs"
 
 def _parse_timestamp(value: Any) -> datetime:
     try:
-        return datetime.fromtimestamp(float(value), tz=timezone.utc)
+        return datetime.fromtimestamp(float(value), tz=UTC)
     except (TypeError, ValueError):
-        return datetime.now(timezone.utc)
+        return datetime.now(UTC)
 
 
 class RedditCollector(Collector):
@@ -70,7 +69,7 @@ class RedditCollector(Collector):
         # Arctic Shift full-text search times out server-side and multi-
         # subreddit (comma) queries silently return empty, so we fetch each
         # subreddit separately and let detectors filter locally.
-        after = int(datetime.now(timezone.utc).timestamp()) - 14 * 86400
+        after = int(datetime.now(UTC).timestamp()) - 14 * 86400
         posts: list[dict[str, Any]] = []
         for subreddit in [s.strip() for s in self.subreddits.split(",") if s.strip()]:
             params: dict[str, Any] = {
@@ -147,7 +146,7 @@ class RedditCollector(Collector):
             provenance=Provenance(
                 url=f"https://www.reddit.com/r/{subreddit}/comments/{post_id}/",
                 retrieval_method="arctic-shift",
-                retrieved_at=datetime.now(timezone.utc),
+                retrieved_at=datetime.now(UTC),
             ),
         )
 
@@ -173,7 +172,7 @@ class RedditCollector(Collector):
             provenance=Provenance(
                 url=f"https://www.reddit.com/r/{subreddit}/comments/{post_id}/comment/{comment_id}/",
                 retrieval_method="arctic-shift",
-                retrieved_at=datetime.now(timezone.utc),
+                retrieved_at=datetime.now(UTC),
             ),
         )
 
