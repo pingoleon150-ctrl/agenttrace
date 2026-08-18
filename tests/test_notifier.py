@@ -41,3 +41,34 @@ def test_test_delivery_does_not_require_database(tmp_path):
     )
     assert sent == 1
     assert "enabled" in messages[0][1]
+
+
+def test_notifier_ignores_resolved_alerts(tmp_path):
+    database = tmp_path / "monitor.db"
+    with SQLiteStore(database):
+        pass
+    connection = sqlite3.connect(database)
+    connection.execute(
+        "INSERT INTO monitor_alerts"
+        "(fingerprint, created_at, status, summary, json) VALUES(?,?,?,?,?)",
+        (
+            "resolved-fingerprint",
+            "2026-01-01T00:00:00Z",
+            "false_positive",
+            "do not send this",
+            json.dumps({}),
+        ),
+    )
+    connection.commit()
+    connection.close()
+
+    messages = []
+    assert (
+        notify_email_alerts(
+            database,
+            "alert@example.com",
+            sender=lambda *message: messages.append(message),
+        )
+        == 0
+    )
+    assert messages == []

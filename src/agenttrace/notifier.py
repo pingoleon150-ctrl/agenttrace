@@ -49,7 +49,8 @@ def notify_email_alerts(
         ).fetchone()
         last_id = int(row[0]) if row else 0
         alerts = connection.execute(
-            "SELECT id, created_at, summary FROM monitor_alerts WHERE id > ? ORDER BY id",
+            "SELECT id, created_at, summary FROM monitor_alerts "
+            "WHERE status='pending' AND id > ? ORDER BY id",
             (last_id,),
         ).fetchall()
         sent = 0
