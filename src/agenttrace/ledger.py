@@ -47,7 +47,10 @@ class RepositoryLedger:
         recheck_stale_days: int | None = None,
         now: datetime | None = None,
     ) -> bool:
-        record = self.read(repository)
+        try:
+            record = self.read(repository)
+        except ValueError:
+            return False  # non-GitHub repositories are never skipped via ledger
         if record is None or recheck_all:
             return False
         requested = {item.lower() for item in (recheck_repositories or set())}
