@@ -70,25 +70,9 @@ class RedditCollector(Collector):
         # subreddit (comma) queries silently return empty, so we fetch each
         # subreddit separately and let detectors filter locally.
         after = int(datetime.now(UTC).timestamp()) - 14 * 86400
-        posts: list[dict[str, Any]] = []
-        for subreddit in [s.strip() for s in self.subreddits.split(",") if s.strip()]:
-            params: dict[str, Any] = {
-                "subreddit": subreddit,
-                "limit": self.limit,
-                "after": str(after) + "s",
-            }
-            try:
-                posts.extend(await self._get("/posts/search", params))
-            except httpx.HTTPError:
-                continue
+        posts = await self._get_all_subreddits(after)
         if self.query:
-            needle = self.query.casefold()
-            posts = [
-                p
-                for p in posts
-                if needle in str(p.get("title") or "").casefold()
-                or needle in str(p.get("selftext") or "").casefold()
-            ]
+            posts = self._filter_posts(posts)
         if len(posts) < self.limit:
             self.exhausted = True
         for post in posts:
@@ -116,6 +100,43 @@ class RedditCollector(Collector):
                     if link not in post_ids:
                         continue
                     yield self._comment_observation(comment, link)
+
+    async def _get_all_subreddits(self, after: int) -> list[dict[str, Any]]:
+        posts: list[dict[str, Any]] = []
+        for subreddit in [s.strip() for s in self.subreddits.split(",") if s.strip()]:
+            params: dict[str, Any] = {
+                "subreddit": subreddit,
+                "limit": self.limit,
+                "after": str(after) + "s",
+            }
+            try:
+                posts.extend(await self._get("/posts/search", params))
+            except httpx.HTTPError:
+                continue
+        return posts
+
+    def _filter_posts(self, posts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Match query terms loosely: strip quotes/operators and require ANY
+        term to appear, so GitHub-style queries like '"heartbeat" "worker"'
+        still surface relevant Reddit discussion instead of discarding all.
+        """
+        import re
+
+        terms = [
+            t.casefold()
+            for t in re.findall(r"[A-Za-z][A-Za-z_-]{2,}", self.query)
+            if t.casefold() not in {"and", "or", "not"}
+        ]
+        if not terms:
+            return posts
+        matched = []
+        for post in posts:
+            haystack = (
+                str(post.get("title") or "") + "\n" + str(post.get("selftext") or "")
+            ).casefold()
+            if any(term in haystack for term in terms):
+                matched.append(post)
+        return matched
 
     def _post_observation(self, post: dict[str, Any]) -> Observation:
         post_id = str(post.get("id"))
