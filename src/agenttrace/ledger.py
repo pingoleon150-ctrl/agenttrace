@@ -86,6 +86,10 @@ def update_ledger(
     repositories = sorted({obs.repository for obs in observations if obs.repository})
     written = []
     for repository in repositories:
+        try:
+            ledger.path_for(repository)
+        except ValueError:
+            continue  # non-GitHub repositories (e.g. reddit/r/...) have no ledger entry
         repo_observations = [obs for obs in observations if obs.repository == repository]
         repo_bundles = [
             bundle
